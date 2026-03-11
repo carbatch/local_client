@@ -10,6 +10,9 @@ import CanvasPane from './components/CanvasPane';
 import { SetupPane, LogsPane } from './components/SetupAndLogsPanes';
 
 async function generateImagesFromAPI(prompt: string, id: string, count: number = 2) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 50000); // 50 seconds timeout
+
   try {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1/generate';
     const response = await fetch(apiUrl, {
@@ -17,12 +20,14 @@ async function generateImagesFromAPI(prompt: string, id: string, count: number =
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt, id, count })
+      body: JSON.stringify({ prompt, id, count }),
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `API Error: ${response.status}`);
+      throw new Error('API Error');
     }
 
     const data = await response.json();
@@ -32,11 +37,11 @@ async function generateImagesFromAPI(prompt: string, id: string, count: number =
       error: undefined
     };
   } catch (error: Error | unknown) {
-    const errObj = error as Error;
+    clearTimeout(timeoutId);
     return {
       success: false,
       images: [],
-      error: errObj.message || 'Unknown network error'
+      error: '이미지 추출 실패' // Standardized error message as requested
     };
   }
 }
@@ -103,10 +108,16 @@ export default function Page() {
 
     if (!results.length) return false;
 
-    setPrompts(results);
+    // Use absolute unique IDs to prevent key collisions if the user parses the same prompt numbers multiple times
+    const uniqueResults = results.map(r => ({
+      ...r,
+      id: `${r.id}_${Math.random().toString(36).substr(2, 4)}`
+    }));
+
+    setPrompts(prev => [...prev, ...uniqueResults]);
     setSelectedId(null);
     setActiveTab('canvas');
-    addLog('info', `${results.length}개 프롬프트 파싱 완료`);
+    addLog('info', `${uniqueResults.length}개 프롬프트 파싱 및 추가 완료`);
     return true;
   };
 
@@ -287,13 +298,10 @@ export default function Page() {
 
   const handleNewChat = () => {
     if (isRunning) return;
-    if (prompts.length === 0) {
-      return;
-    }
-    setPrompts([]);
+    // We no longer clear the prompts to keep the previous records intact as requested.
     setSelectedId(null);
     setActiveTab('canvas');
-    addLog('info', '새 채팅이 시작되었습니다.');
+    addLog('info', '캔버스로 이동했습니다.');
   };
 
   const sendSinglePrompt = async (text: string) => {
@@ -375,6 +383,7 @@ export default function Page() {
               isRunning={isRunning}
               onSendSinglePrompt={sendSinglePrompt}
               onRetryPrompt={retryPrompt}
+              onParsePrompts={parsePrompts}
             />
           )}
           {activeTab === 'setup' && (

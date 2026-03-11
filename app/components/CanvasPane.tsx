@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import type { PromptItem } from '../types';
 import { saveAs } from 'file-saver';
-import { Play, Sparkles, X, Dices } from 'lucide-react';
+import { Play, Sparkles, X, Dices, Plus } from 'lucide-react';
 
 interface CanvasPaneProps {
   prompts: PromptItem[];
@@ -9,13 +9,15 @@ interface CanvasPaneProps {
   isRunning: boolean;
   onSendSinglePrompt: (text: string) => void;
   onRetryPrompt: (id: string) => void;
+  onParsePrompts: (text: string) => boolean;
 }
 
 export default function CanvasPane({ 
-  prompts, currentPromptIndex, isRunning, onSendSinglePrompt, onRetryPrompt
+  prompts, currentPromptIndex, isRunning, onSendSinglePrompt, onRetryPrompt, onParsePrompts
 }: CanvasPaneProps) {
   const currentPrompt = prompts[currentPromptIndex];
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const doneCount = prompts.filter(p => p.status === 'done').length;
   const totalCount = prompts.length;
@@ -56,6 +58,24 @@ export default function CanvasPane({
       inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px';
       inputRef.current.focus();
     }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.txt')) {
+      alert('.txt 파일만 지원합니다.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      onParsePrompts(content);
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = ''; // Reset
   };
 
   return (
@@ -160,35 +180,56 @@ export default function CanvasPane({
       </div>
 
       {/* Input Bar */}
-      <div className="border-t border-[var(--border)] p-3 px-5 flex items-end gap-2.5 bg-[var(--surface)] shrink-0">
-        <div className="flex-1 bg-[var(--surface2)] border border-[var(--border2)] rounded-[var(--radius)] p-2.5 px-3.5 flex items-end gap-2.5 transition-colors duration-150 focus-within:border-[var(--accent)]">
-          <textarea 
-            ref={inputRef}
-            className="flex-1 bg-transparent border-none outline-none text-[var(--text)] text-[13px] font-[var(--font-sans)] resize-none leading-[1.5] max-h-[120px] placeholder:text-[var(--text3)]"
-            rows={1}
-            placeholder="아이디어를 설명하거나 주사위를 굴려 아이디어를 얻으세요."
-            onChange={(e) => {
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          <button 
-            onClick={handleSend}
-            className="w-8 h-8 rounded-lg bg-[var(--accent)] text-[#0e0e10] flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-[var(--accent2)] hover:scale-105 shrink-0"
-          >
-            <Play size={16} fill="currentColor" />
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={rollDice} className="w-8 h-8 rounded-lg border border-[var(--border2)] text-[var(--text3)] flex items-center justify-center cursor-pointer transition-colors duration-150 hover:bg-[var(--surface2)] hover:text-[var(--text)] hover:border-[var(--border)]">
-            <Dices size={16} />
-          </button>
+      <div className="border-t border-[var(--border)] p-3 px-5 flex items-end justify-center bg-[var(--surface)] shrink-0">
+        <div className="w-full max-w-[800px] flex items-stretch gap-2.5 mx-auto">
+          {/* File Upload Button */}
+          <div className="flex items-stretch">
+            <input 
+              ref={fileInputRef}
+              type="file" 
+              accept=".txt" 
+              className="hidden" 
+              onChange={handleFileUpload} 
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-12 rounded-[10px] border border-[var(--border2)] text-[var(--text2)] flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-[var(--surface2)] hover:text-[var(--accent)] hover:border-[var(--accent)] shrink-0"
+              title=".txt 파일 업로드"
+            >
+              <Plus size={24} />
+            </button>
+          </div>
+
+          <div className="flex-1 bg-[var(--surface2)] border border-[var(--border2)] rounded-[var(--radius)] p-2.5 px-3.5 flex items-end gap-2.5 transition-colors duration-150 focus-within:border-[var(--accent)]">
+            <textarea 
+              ref={inputRef}
+              className="flex-1 bg-transparent border-none outline-none text-[var(--text)] text-[13px] font-[var(--font-sans)] resize-none leading-[1.5] max-h-[120px] placeholder:text-[var(--text3)]"
+              rows={1}
+              placeholder="아이디어를 설명하거나 주사위를 굴려 아이디어를 얻으세요."
+              onChange={(e) => {
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+            />
+            <button 
+              onClick={handleSend}
+              className="w-8 h-8 rounded-lg bg-[var(--accent)] text-[#0e0e10] flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-[var(--accent2)] hover:scale-105 shrink-0"
+            >
+              <Play size={16} fill="currentColor" />
+            </button>
+          </div>
+          
+          <div className="flex items-stretch">
+            <button onClick={rollDice} className="w-12 rounded-[10px] border border-[var(--border2)] text-[var(--text3)] flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-[var(--surface2)] hover:text-[var(--text)] hover:border-[var(--border)] shrink-0" title="랜덤 아이디어 생성">
+              <Dices size={24} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -76,11 +76,11 @@ export default function LeftPanel({
         {prompts.length === 0 ? (
           <div className="p-10 flex flex-col items-center justify-center gap-3">
             <button 
-              onClick={onSwitchToSetup}
+              onClick={onNewChat}
               className="group flex flex-col items-center gap-3 px-6 py-8 border border-dashed border-[var(--border2)] rounded-xl text-[var(--text3)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-all w-full"
             >
               <div className="text-[24px] group-hover:scale-110 transition-transform">+</div>
-              <div className="text-[12px] font-medium font-[var(--font-sans)]">새 채팅 시작하기</div>
+              <div className="text-[12px] font-medium font-[var(--font-sans)]">새 채팅 (캔버스) 시작하기</div>
             </button>
           </div>
         ) : (
