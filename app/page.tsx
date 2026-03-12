@@ -11,10 +11,16 @@ import { SetupPane, LogsPane } from './components/SetupAndLogsPanes';
 
 async function generateImagesFromAPI(prompt: string, id: string, count: number = 2) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 50000); // 50 seconds timeout
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds timeout (2분)
+
+  // API 서버 주소 (backend .env 포트에 맞춤)
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const apiUrl = `${baseUrl}/api/v1/generate`;
+
+  console.log(`\n[Client -> Server] 이미지 생성 API 요청 - URL: ${apiUrl}`);
+  console.log(`ㄴ ID: ${id}, Count: ${count}, Prompt: ${prompt.substring(0, 100)}...`);
 
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1/generate';
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -27,10 +33,11 @@ async function generateImagesFromAPI(prompt: string, id: string, count: number =
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error('API Error');
+      throw new Error(`API Error: ${response.status}`);
     }
 
     const data = await response.json();
+    console.log(`[Server -> Client] 이미지 생성 API 응답 성공 - ID: ${id}, 수신된 Base64 이미지: ${data.images?.length}장`);
     return {
       success: true,
       images: (data.images || []) as string[],
@@ -38,6 +45,7 @@ async function generateImagesFromAPI(prompt: string, id: string, count: number =
     };
   } catch (error: Error | unknown) {
     clearTimeout(timeoutId);
+    console.error(`[Server -> Client] 이미지 생성 API 통신 실패 - ID: ${id}`, error);
     return {
       success: false,
       images: [],
@@ -202,27 +210,46 @@ export default function Page() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Display preview
+    setIsExtractingStyle(true);
+    addLog('info', '이미지 분석 시작 (서버 요청 중)...');
+
     const reader = new FileReader();
-    reader.onload = (event) => {
-      setStyleImagePreview(event.target?.result as string);
+    reader.onload = async (event) => {
+      const base64Data = event.target?.result as string;
+      setStyleImagePreview(base64Data);
+
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = `${baseUrl}/api/v1/extract-style`;
+
+      console.log(`\n[Client -> Server] 스타일 추출 API 요청 - URL: ${apiUrl}`);
+      console.log(`ㄴ 전송 크기: ${(base64Data.length / 1024).toFixed(2)} KB`);
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64Data })
+        });
+        
+        if (!response.ok) throw new Error(`API Error: ${response.status}`);
+        
+        const data = await response.json();
+        console.log(`[Server -> Client] 스타일 추출 API 응답 수신 성공! text: ${data.style}`);
+        
+        setStylePrompt(data.style);
+        addLog('success', '스타일 텍스트 추출 완료');
+      } catch (err: unknown) {
+        console.error(`[Server -> Client] 스타일 추출 단위 통신 실패:`, err);
+        addLog('error', `스타일 추출 실패: ${(err as Error).message || ''}`);
+      } finally {
+        setIsExtractingStyle(false);
+      }
+    };
+    reader.onerror = () => {
+      addLog('error', '파일 읽기 실패');
+      setIsExtractingStyle(false);
     };
     reader.readAsDataURL(file);
-
-    setIsExtractingStyle(true);
-    addLog('info', '이미지 분석 시작 (스타일 추출)...');
-
-    try {
-      // Mock API call for style extraction — in real world, post to /api/extract-style using Vision model
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const extractedStyle = "Cinematic lighting, 35mm photography, high contrast, muted aesthetic, highly detailed";
-      setStylePrompt(extractedStyle);
-      addLog('success', '스타일 텍스트 추출 완료');
-    } catch (err: unknown) {
-      addLog('error', `스타일 추출 실패: ${(err as Error).message || ''}`);
-    } finally {
-      setIsExtractingStyle(false);
-    }
   };
 
   const handleDownloadAllZip = async () => {
