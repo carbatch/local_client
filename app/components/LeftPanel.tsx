@@ -3,10 +3,10 @@ import type { PageSummary } from '../types';
 
 interface LeftPanelProps {
   pages: PageSummary[];
-  currentPageId: number | null;
-  onSelectPage: (id: number) => void;
+  currentPageId: string | null;
+  onSelectPage: (id: string) => void;
   onNewPage: () => void;
-  onDeletePage: (id: number) => void;
+  onDeletePage: (id: string) => void;
   stylePrompt: string;
   setStylePrompt: (val: string) => void;
   styleImagePreview: string | null;

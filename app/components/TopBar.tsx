@@ -1,4 +1,4 @@
-import { ScrollText, Settings, LogOut } from 'lucide-react';
+import { ScrollText, Settings, KeyRound, HardDrive } from 'lucide-react';
 
 interface TopBarProps {
   activeTab: 'canvas' | 'setup' | 'logs';
@@ -6,11 +6,11 @@ interface TopBarProps {
   promptsCount: number;
   doneCount: number;
   isRunning: boolean;
-  username: string | null;
-  onLogout: () => void;
+  onChangeApiKey: () => void;
+  onOpenStorage: () => void;
 }
 
-export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, username, onLogout }: TopBarProps) {
+export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onChangeApiKey, onOpenStorage }: TopBarProps) {
   const pct = promptsCount > 0 ? Math.round((doneCount / promptsCount) * 100) : 0;
 
   return (
@@ -54,18 +54,21 @@ export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCoun
           <Settings size={15} />
         </button>
 
-        {username && (
-          <div className="flex items-center gap-1.5 pl-2 border-l border-[var(--border)]">
-            <span className="text-[11px] text-[var(--text3)] font-[var(--font-mono)]">{username}</span>
-            <button
-              onClick={onLogout}
-              title="로그아웃"
-              className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--red)] hover:bg-white/5"
-            >
-              <LogOut size={14} />
-            </button>
-          </div>
-        )}
+        <button
+          onClick={onOpenStorage}
+          title="저장 공간 관리"
+          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--text)] hover:bg-white/5"
+        >
+          <HardDrive size={14} />
+        </button>
+
+        <button
+          onClick={onChangeApiKey}
+          title="API 키 변경"
+          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--accent)] hover:bg-white/5"
+        >
+          <KeyRound size={14} />
+        </button>
       </div>
     </div>
   );

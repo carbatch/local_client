@@ -2,15 +2,11 @@ import { useRef, useState } from 'react';
 import type { PromptItem } from '../types';
 import { Play, Sparkles, Dices, Plus, Copy, Download, RotateCcw, PackageOpen } from 'lucide-react';
 
-async function downloadImage(url: string, filename: string) {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
+function downloadImage(dataUri: string, filename: string) {
   const a = document.createElement('a');
-  a.href = objectUrl;
+  a.href = dataUri;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(objectUrl);
 }
 
 async function copyImageToClipboard(url: string) {
@@ -49,7 +45,7 @@ async function copyImageToClipboard(url: string) {
 interface CanvasPaneProps {
   prompts: PromptItem[];
   isRunning: boolean;
-  currentPageId: number | null;
+  currentPageId: string | null;
   onSendSinglePrompt: (text: string) => void;
   onRetryImage: (promptId: string, imgIndex: number) => void;
   retryingImages: Set<string>;

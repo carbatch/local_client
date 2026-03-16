@@ -1,13 +1,4 @@
 import { atomWithStorage } from 'jotai/utils';
 
-export interface AuthUser {
-  id: number;
-  username: string;
-}
-
-export interface AuthState {
-  token: string | null;
-  user: AuthUser | null;
-}
-
-export const authAtom = atomWithStorage<AuthState>('carbatch_auth', { token: null, user: null });
+// OpenAI API 키 — localStorage에 저장, 서버로 전송되지 않음
+export const apiKeyAtom = atomWithStorage<string>('carbatch_apikey', '');

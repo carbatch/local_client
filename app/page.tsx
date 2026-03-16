@@ -5,153 +5,134 @@ import { useAtom } from 'jotai';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import type { PromptItem, PageSummary, LogEntry } from './types';
-import { authAtom } from './store/atoms';
-import AuthModal from './components/AuthModal';
+import { apiKeyAtom } from './store/atoms';
+import { saveImages, loadImages, deletePageImages, deleteAllImages } from './lib/idb';
+import ApiKeyModal from './components/AuthModal';
+import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
 import CanvasPane from './components/CanvasPane';
 import { SetupPane, LogsPane } from './components/SetupAndLogsPanes';
 
-const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-function authHeaders(token: string | null): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) h['Authorization'] = `Bearer ${token}`;
-  return h;
+// ── 로컬 ID 생성 ──────────────────────────────────────────────────────────
+function newId(): string {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ── API 호출 ──────────────────────────────────────────────────────────────
+// ── OpenAI API 직접 호출 ─────────────────────────────────────────────────
 
-async function apiPollStatus(
-  promptId: string,
-  isAborted: () => boolean = () => false,
-): Promise<{ status: string; image_paths: string[]; error_msg?: string } | null> {
-  const base = getApiUrl();
-  for (let i = 0; i < 120; i++) {
-    if (isAborted()) return null;
-    await new Promise<void>(r => setTimeout(r, 2000));
-    if (isAborted()) return null;
-    try {
-      const res = await fetch(`${base}/api/v1/generations/${promptId}/status`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data.status === 'done' || data.status === 'error') return data;
-    } catch { /* retry */ }
-  }
-  return null;
-}
-
-async function apiGenerateImages(
-  prompt: string,
-  promptId: string,
-  count = 2,
-  pageId?: number,
-  isAborted: () => boolean = () => false,
-  token: string | null = null,
-) {
-  try {
-    const res = await fetch(`${getApiUrl()}/api/v1/generate`, {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify({ prompt, id: promptId, count, page_id: pageId }),
-    });
-    if (!res.ok) return { success: false, images: [], error: `API Error: ${res.status}` };
-  } catch {
-    return { success: false, images: [], error: '이미지 생성 요청 실패' };
-  }
-
-  const data = await apiPollStatus(promptId, isAborted);
-  if (!data) return { success: false, images: [], error: isAborted() ? '취소됨' : '타임아웃' };
-  if (data.status === 'error') return { success: false, images: [], error: data.error_msg || '생성 실패' };
-
-  const base = getApiUrl();
-  return { success: true, images: data.image_paths.map((p: string) => `${base}/storage/${p}`) };
-}
-
-async function apiCreatePage(title = '새 채팅', token: string | null = null): Promise<PageSummary> {
-  const res = await fetch(`${getApiUrl()}/api/v1/pages`, {
+/** DALL-E 3로 이미지 1장 생성 → base64 data URI 반환 */
+async function openaiGenerateImage(prompt: string, apiKey: string): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify({ title }),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'dall-e-3',
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      response_format: 'b64_json',
+    }),
   });
-  return res.json();
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `API 오류: ${res.status}`);
+  }
+  const data = await res.json();
+  return `data:image/png;base64,${data.data[0].b64_json}`;
 }
 
-async function apiListPages(token: string | null = null): Promise<PageSummary[]> {
-  try {
-    const res = await fetch(`${getApiUrl()}/api/v1/pages`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch { return []; }
+/** count장 이미지를 순차 생성 (DALL-E 3는 n=1만 지원) */
+async function generateImagesLocal(
+  prompt: string,
+  count: number,
+  apiKey: string,
+  isAborted: () => boolean,
+): Promise<{ success: boolean; images: string[]; error?: string }> {
+  const images: string[] = [];
+  for (let i = 0; i < count; i++) {
+    if (isAborted()) return { success: false, images: [], error: '취소됨' };
+    try {
+      const img = await openaiGenerateImage(prompt, apiKey);
+      images.push(img);
+    } catch (e) {
+      if (images.length === 0) return { success: false, images: [], error: (e as Error).message };
+      break;
+    }
+  }
+  return images.length > 0 ? { success: true, images } : { success: false, images: [], error: '생성 실패' };
 }
 
-async function apiGetPageGenerations(pageId: number, token: string | null = null): Promise<PromptItem[]> {
+/** GPT-4o Vision으로 이미지 스타일 추출 */
+async function openaiExtractStyle(imageDataUri: string, apiKey: string): Promise<string> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: imageDataUri } },
+          {
+            type: 'text',
+            text: 'Analyze the visual style of this image. Describe the art style, lighting, color palette, mood, and texture in a concise style descriptor suitable for an image generation prompt. Keep it under 200 tokens.',
+          },
+        ],
+      }],
+      max_tokens: 200,
+    }),
+  });
+  if (!res.ok) throw new Error('스타일 추출 실패');
+  const data = await res.json();
+  return data.choices[0].message.content as string;
+}
+
+// ── localStorage 페이지/프롬프트 관리 ────────────────────────────────────
+
+const PAGES_KEY = 'carbatch_pages';
+const pagePromptsKey = (id: string) => `carbatch_prompts_${id}`;
+
+function lsGetPages(): PageSummary[] {
+  try { return JSON.parse(localStorage.getItem(PAGES_KEY) || '[]'); } catch { return []; }
+}
+function lsSetPages(pages: PageSummary[]) {
+  localStorage.setItem(PAGES_KEY, JSON.stringify(pages));
+}
+/** 프롬프트 텍스트만 저장 — 이미지는 IDB에 별도 보관 */
+function lsGetPrompts(pageId: string): PromptItem[] {
   try {
-    const res = await fetch(`${getApiUrl()}/api/v1/pages/${pageId}/generations`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) return [];
-    const gens = await res.json();
-    const base = getApiUrl();
-    return gens.map((g: {
-      prompt_id: string;
-      prompt_text: string;
-      image_paths: string[];
-      status: string;
-      error_msg?: string;
-    }) => ({
-      id: g.prompt_id,
-      text: g.prompt_text,
-      status: (g.status === 'done' || g.status === 'error' || g.status === 'running' || g.status === 'pending')
-        ? g.status as PromptItem['status']
-        : 'done' as const,
-      images: g.image_paths.length > 0 ? g.image_paths.map((p: string) => `${base}/storage/${p}`) : null,
-      error: g.error_msg,
+    const raw = localStorage.getItem(pagePromptsKey(pageId));
+    if (!raw) return [];
+    return (JSON.parse(raw) as { id: string; text: string }[]).map(p => ({
+      id: p.id, text: p.text, status: 'pending' as const, images: null,
     }));
   } catch { return []; }
 }
-
-async function apiRenamePage(pageId: number, title: string, token: string | null = null) {
-  await fetch(`${getApiUrl()}/api/v1/pages/${pageId}`, {
-    method: 'PATCH',
-    headers: authHeaders(token),
-    body: JSON.stringify({ title }),
-  });
-}
-
-async function apiDeletePage(pageId: number, token: string | null = null) {
-  await fetch(`${getApiUrl()}/api/v1/pages/${pageId}`, {
-    method: 'DELETE',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+function lsDeletePage(pageId: string) {
+  localStorage.removeItem(pagePromptsKey(pageId));
 }
 
 // ── 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function Page() {
-  const [auth, setAuth] = useAtom(authAtom);
+  const [apiKey] = useAtom(apiKeyAtom);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [showStorageModal, setShowStorageModal] = useState(false);
 
-  // 마운트 시 저장된 토큰 유효성 검증
-  useEffect(() => {
-    if (!auth.token) return;
-    fetch(`${getApiUrl()}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    }).then(res => {
-      if (!res.ok) setAuth({ token: null, user: null });
-    }).catch(() => { /* 네트워크 오류는 무시 */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // stale closure 방지용 tokenRef
-  const tokenRef = useRef(auth.token);
-  useEffect(() => { tokenRef.current = auth.token; }, [auth.token]);
+  const apiKeyRef = useRef(apiKey);
+  useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'setup' | 'logs'>('canvas');
 
   const [pages, setPages] = useState<PageSummary[]>([]);
-  const [currentPageId, setCurrentPageId] = useState<number | null>(null);
+  const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
 
   const [stylePrompt, setStylePrompt] = useState('');
@@ -165,92 +146,87 @@ export default function Page() {
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  // 현재 폴링 중인 prompt_id 집합 (중복 방지)
-  const pollingRef = useRef<Set<string>>(new Set());
+  const stylePromptRef = useRef(stylePrompt);
+  useEffect(() => { stylePromptRef.current = stylePrompt; }, [stylePrompt]);
+
+  const currentPageIdRef = useRef(currentPageId);
+  useEffect(() => { currentPageIdRef.current = currentPageId; }, [currentPageId]);
 
   const addLog = useCallback((level: LogEntry['level'], msg: string) => {
     setLogs(prev => [...prev, { level, msg, time: new Date().toLocaleTimeString('ko-KR', { hour12: false }) }]);
   }, []);
 
-  // ── 재연결 폴링 ───────────────────────────────────────────────────────
+  // ── 프롬프트 텍스트 자동 저장 ─────────────────────────────────────────
 
-  const resumePolling = useCallback((items: PromptItem[]) => {
-    const base = getApiUrl();
-    for (const item of items) {
-      if ((item.status === 'running' || item.status === 'pending') && !pollingRef.current.has(item.id)) {
-        pollingRef.current.add(item.id);
-        apiPollStatus(item.id).then(data => {
-          pollingRef.current.delete(item.id);
-          if (!data) return;
-          setPrompts(prev => prev.map(p =>
-            p.id === item.id
-              ? {
-                  ...p,
-                  status: data.status === 'done' ? 'done' : 'error',
-                  images: data.status === 'done' && data.image_paths.length > 0
-                    ? data.image_paths.map((path: string) => `${base}/storage/${path}`)
-                    : null,
-                  error: data.error_msg,
-                }
-              : p
-          ));
-          if (data.status === 'done') addLog('success', '이미지 생성 완료 (재연결)');
-          else addLog('error', `생성 실패: ${data.error_msg || '알 수 없는 오류'}`);
-        });
-      }
-    }
-  }, [addLog]);
+  useEffect(() => {
+    if (!currentPageId) return;
+    const toSave = prompts.map(({ id, text }) => ({ id, text }));
+    localStorage.setItem(pagePromptsKey(currentPageId), JSON.stringify(toSave));
+  }, [prompts, currentPageId]);
 
   // ── 초기 로드 ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!auth.token) return;
-    apiListPages(auth.token).then(list => {
-      setPages(list);
-      if (list.length > 0) {
-        const lastId = typeof window !== 'undefined' ? localStorage.getItem('lastPageId') : null;
-        const target = lastId ? list.find(p => p.id === Number(lastId)) : null;
-        selectPageById(target ? target.id : list[0].id);
-      }
-    });
+    if (!apiKey) return;
+    const list = lsGetPages();
+    setPages(list);
+    if (list.length > 0) {
+      const lastId = localStorage.getItem('lastPageId');
+      const target = lastId ? list.find(p => p.id === lastId) : null;
+      selectPageById(target ? target.id : list[0].id);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.token]);
+  }, [apiKey]);
 
-  // ── 페이지 선택 ───────────────────────────────────────────────────────
+  // ── 페이지 선택 (IDB에서 이미지 복원) ────────────────────────────────
 
-  const selectPageById = async (pageId: number) => {
+  const selectPageById = async (pageId: string) => {
     setCurrentPageId(pageId);
-    if (typeof window !== 'undefined') localStorage.setItem('lastPageId', String(pageId));
+    localStorage.setItem('lastPageId', pageId);
     setActiveTab('canvas');
-    setPrompts([]);
-    const items = await apiGetPageGenerations(pageId, tokenRef.current);
+
+    // 1) 프롬프트 텍스트를 먼저 pending 상태로 표시
+    const items = lsGetPrompts(pageId);
     setPrompts(items);
-    resumePolling(items);
+
+    // 2) IDB에서 이미지 비동기 복원
+    const withImages = await Promise.all(
+      items.map(async (item) => {
+        try {
+          const imgs = await loadImages(item.id);
+          return imgs.length > 0
+            ? { ...item, images: imgs, status: 'done' as const }
+            : item;
+        } catch { return item; }
+      })
+    );
+    setPrompts(withImages);
   };
 
-  const selectPage = async (pageId: number) => {
+  const selectPage = async (pageId: string) => {
     if (isRunning) return;
-    selectPageById(pageId);
+    await selectPageById(pageId);
   };
 
   // ── 새 페이지 생성 ────────────────────────────────────────────────────
 
-  const handleNewPage = async () => {
+  const handleNewPage = () => {
     if (isRunning) return;
-    const page = await apiCreatePage('새 채팅', auth.token);
-    setPages(prev => [page, ...prev]);
+    const page: PageSummary = { id: newId(), title: '새 채팅', created_at: new Date().toISOString() };
+    setPages(prev => { const next = [page, ...prev]; lsSetPages(next); return next; });
     setCurrentPageId(page.id);
-    if (typeof window !== 'undefined') localStorage.setItem('lastPageId', String(page.id));
+    localStorage.setItem('lastPageId', page.id);
     setPrompts([]);
     setActiveTab('canvas');
-    addLog('info', `새 페이지 생성됨 (ID: ${page.id})`);
+    addLog('info', '새 페이지 생성됨');
   };
 
   // ── 페이지 삭제 ───────────────────────────────────────────────────────
 
-  const handleDeletePage = async (pageId: number) => {
-    await apiDeletePage(pageId, auth.token);
-    setPages(prev => prev.filter(p => p.id !== pageId));
+  const handleDeletePage = async (pageId: string) => {
+    lsDeletePage(pageId);
+    await deletePageImages(pageId);
+    setPages(prev => { const next = prev.filter(p => p.id !== pageId); lsSetPages(next); return next; });
     if (currentPageId === pageId) {
       const remaining = pages.filter(p => p.id !== pageId);
       if (remaining.length > 0) {
@@ -258,7 +234,7 @@ export default function Page() {
       } else {
         setCurrentPageId(null);
         setPrompts([]);
-        if (typeof window !== 'undefined') localStorage.removeItem('lastPageId');
+        localStorage.removeItem('lastPageId');
       }
     }
   };
@@ -268,27 +244,30 @@ export default function Page() {
   const sendSinglePrompt = async (text: string) => {
     let pageId = currentPageId;
     if (!pageId) {
-      const page = await apiCreatePage(text.slice(0, 30), auth.token);
-      setPages(prev => [page, ...prev]);
+      const page: PageSummary = { id: newId(), title: text.slice(0, 30), created_at: new Date().toISOString() };
+      setPages(prev => { const next = [page, ...prev]; lsSetPages(next); return next; });
       setCurrentPageId(page.id);
-      if (typeof window !== 'undefined') localStorage.setItem('lastPageId', String(page.id));
+      localStorage.setItem('lastPageId', page.id);
       pageId = page.id;
     }
 
-    const promptId = `${Date.now()}`;
+    const promptId = newId();
     const newPrompt: PromptItem = { id: promptId, text, status: 'running', images: null };
-    setPrompts(prev => [...prev, newPrompt]);
+    setPrompts(prev => {
+      if (prev.length === 0) {
+        const title = text.slice(0, 30);
+        setPages(ps => { const next = ps.map(p => p.id === pageId ? { ...p, title } : p); lsSetPages(next); return next; });
+      }
+      return [...prev, newPrompt];
+    });
 
-    if (prompts.length === 0) {
-      const title = text.slice(0, 30);
-      apiRenamePage(pageId, title, auth.token);
-      setPages(prev => prev.map(p => p.id === pageId ? { ...p, title } : p));
-    }
-
-    addLog('info', `이미지 생성 시작`);
-
+    addLog('info', '이미지 생성 시작');
     const full = stylePromptRef.current ? `${text}, ${stylePromptRef.current}` : text;
-    const result = await apiGenerateImages(full, promptId, 2, pageId, () => false, auth.token);
+    const result = await generateImagesLocal(full, 2, apiKeyRef.current, () => false);
+
+    if (result.success && result.images.length > 0) {
+      await saveImages(pageId, promptId, result.images);
+    }
 
     setPrompts(prev => prev.map(p =>
       p.id === promptId
@@ -300,33 +279,37 @@ export default function Page() {
     else addLog('error', `생성 실패: ${result.error}`);
   };
 
-  // stylePrompt stale closure 방지용 ref
-  const stylePromptRef = useRef(stylePrompt);
-  useEffect(() => { stylePromptRef.current = stylePrompt; }, [stylePrompt]);
+  // ── 배치 실행 ─────────────────────────────────────────────────────────
 
-  // ── 배치 실행 (items, pageId를 직접 받아 stale closure 방지) ──────────
-
-  const runBatchItems = useCallback(async (items: PromptItem[], pageId: number) => {
+  const runBatchItems = useCallback(async (items: PromptItem[], pageId: string) => {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
     abortFlagRef.current = false;
     setIsRunning(true);
     addLog('info', `자동화 시작 — ${items.length}개 프롬프트`);
 
+    const completedItems: PromptItem[] = [];
+
     for (const p of items) {
       if (abortFlagRef.current) break;
 
       setPrompts(prev => prev.map(x => x.id === p.id ? { ...x, status: 'running' } : x));
-      // 매 항목마다 최신 스타일을 ref에서 읽음 (중간에 변경돼도 즉시 반영)
       const style = stylePromptRef.current;
       const full = style ? `${p.text}, ${style}` : p.text;
-      const result = await apiGenerateImages(full, p.id, 2, pageId, () => abortFlagRef.current, tokenRef.current);
+      const result = await generateImagesLocal(full, 2, apiKeyRef.current, () => abortFlagRef.current);
 
-      setPrompts(prev => prev.map(x =>
-        x.id === p.id
-          ? { ...x, status: result.success ? 'done' : 'error', images: result.images.length ? result.images : null, error: result.error }
-          : x
-      ));
+      if (result.success && result.images.length > 0) {
+        await saveImages(pageId, p.id, result.images);
+      }
+
+      const updated: PromptItem = {
+        ...p,
+        status: result.success ? 'done' : 'error',
+        images: result.images.length ? result.images : null,
+        error: result.error,
+      };
+      setPrompts(prev => prev.map(x => x.id === p.id ? updated : x));
+      if (result.success) completedItems.push(updated);
 
       if (result.success) addLog('success', '이미지 2장 생성 완료');
       else addLog('error', `생성 실패: ${result.error}`);
@@ -336,15 +319,17 @@ export default function Page() {
 
     if (!abortFlagRef.current) {
       addLog('success', '모든 프롬프트 처리 완료! ✦');
-      if (isAutoDownload) {
+      if (isAutoDownload && completedItems.length > 0) {
         try {
-          const res = await fetch(`${getApiUrl()}/api/v1/pages/${pageId}/download-zip`, {
-          headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {},
-        });
-          if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-          const blob = await res.blob();
-          const { saveAs } = await import('file-saver');
-          saveAs(blob, `carbatch-page-${pageId}.zip`);
+          const zip = new JSZip();
+          completedItems.forEach((item, pi) => {
+            (item.images || []).forEach((img, ii) => {
+              const base64 = img.split(',')[1];
+              zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
+            });
+          });
+          const blob = await zip.generateAsync({ type: 'blob' });
+          saveAs(blob, `carbatch-${pageId}.zip`);
           addLog('success', 'ZIP 자동 다운로드 완료');
         } catch (e) {
           addLog('error', `ZIP 자동 다운로드 실패: ${e}`);
@@ -358,9 +343,9 @@ export default function Page() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addLog, isAutoDownload]);
 
-  // ── 배치 자동화 ───────────────────────────────────────────────────────
+  // ── 배치 자동화 토글 ──────────────────────────────────────────────────
 
-  const handleRunToggle = async () => {
+  const handleRunToggle = () => {
     if (isRunning) {
       abortFlagRef.current = true;
       isRunningRef.current = false;
@@ -368,10 +353,8 @@ export default function Page() {
       addLog('warn', '자동화 중지됨');
       return;
     }
-
     const pending = prompts.filter(p => p.status === 'pending' || p.status === 'error');
     if (!pending.length || !currentPageId) return;
-
     runBatchItems(pending, currentPageId);
   };
 
@@ -386,23 +369,21 @@ export default function Page() {
     const key = `${promptId}__${imgIndex}`;
     setRetryingImages(prev => new Set([...prev, key]));
 
-    const retryId = `${Date.now()}`;
     const style = stylePromptRef.current;
     const full = style ? `${prompt.text}, ${style}` : prompt.text;
-    const result = await apiGenerateImages(full, retryId, 1, currentPageId, () => false, auth.token);
+    const result = await generateImagesLocal(full, 1, apiKeyRef.current, () => false);
 
-    setRetryingImages(prev => {
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
+    setRetryingImages(prev => { const next = new Set(prev); next.delete(key); return next; });
 
     if (result.success && result.images.length > 0) {
       setPrompts(prev => prev.map(p => {
         if (p.id !== promptId) return p;
         const newImages = [...(p.images || [])];
         newImages[imgIndex] = result.images[0];
-        return { ...p, images: newImages, status: 'done' };
+        const updated = { ...p, images: newImages, status: 'done' as const };
+        // IDB 전체 이미지 업데이트
+        saveImages(currentPageIdRef.current!, promptId, newImages);
+        return updated;
       }));
       addLog('success', '이미지 재시도 완료');
     } else {
@@ -420,7 +401,7 @@ export default function Page() {
     const flush = () => {
       if (curId && curLines.length) {
         const joined = curLines.join(' ').trim();
-        if (joined) results.push({ id: `${Date.now()}_${results.length}`, text: joined, status: 'pending', images: null });
+        if (joined) results.push({ id: newId(), text: joined, status: 'pending', images: null });
       }
     };
 
@@ -437,10 +418,10 @@ export default function Page() {
 
     let pageId = currentPageId;
     if (!pageId) {
-      const page = await apiCreatePage(results[0].text.slice(0, 30), tokenRef.current);
-      setPages(prev => [page, ...prev]);
+      const page: PageSummary = { id: newId(), title: results[0].text.slice(0, 30), created_at: new Date().toISOString() };
+      setPages(prev => { const next = [page, ...prev]; lsSetPages(next); return next; });
       setCurrentPageId(page.id);
-      if (typeof window !== 'undefined') localStorage.setItem('lastPageId', String(page.id));
+      localStorage.setItem('lastPageId', page.id);
       pageId = page.id;
     }
 
@@ -448,7 +429,6 @@ export default function Page() {
     setActiveTab('canvas');
     addLog('info', `${results.length}개 프롬프트 로드 완료`);
 
-    // 로드 즉시 자동 생성 시작
     if (!isRunning) {
       runBatchItems(results, pageId);
     }
@@ -468,14 +448,8 @@ export default function Page() {
       const base64Data = ev.target?.result as string;
       setStyleImagePreview(base64Data);
       try {
-        const res = await fetch(`${getApiUrl()}/api/v1/extract-style`, {
-          method: 'POST',
-          headers: authHeaders(tokenRef.current),
-          body: JSON.stringify({ image: base64Data }),
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        setStylePrompt(data.style);
+        const style = await openaiExtractStyle(base64Data, apiKeyRef.current);
+        setStylePrompt(style);
         addLog('success', '스타일 추출 완료');
       } catch {
         addLog('error', '스타일 추출 실패');
@@ -489,45 +463,75 @@ export default function Page() {
   // ── ZIP 다운로드 ──────────────────────────────────────────────────────
 
   const handleDownloadAllZip = async () => {
-    if (!currentPageId) { addLog('warn', '페이지를 선택해주세요.'); return; }
     const done = prompts.filter(p => p.status === 'done' && p.images?.length);
     if (!done.length) { addLog('warn', '다운로드할 이미지가 없습니다.'); return; }
     try {
-      const res = await fetch(`${getApiUrl()}/api/v1/pages/${currentPageId}/download-zip`, {
-        headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+      const zip = new JSZip();
+      done.forEach((p, pi) => {
+        (p.images || []).forEach((img, ii) => {
+          const base64 = img.split(',')[1];
+          zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
+        });
       });
-      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      const blob = await res.blob();
-      saveAs(blob, `carbatch-page-${currentPageId}.zip`);
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const title = pages.find(p => p.id === currentPageId)?.title || 'batch';
+      saveAs(blob, `carbatch-${title}.zip`);
       addLog('success', 'ZIP 다운로드 완료');
     } catch (e) {
       addLog('error', `ZIP 다운로드 실패: ${e}`);
     }
   };
 
+  // ── StorageModal 콜백 ─────────────────────────────────────────────────
+
+  /** 특정 페이지 이미지 삭제 후 → 현재 페이지면 프롬프트 pending 초기화 */
+  const handlePageImagesCleared = (pageId: string) => {
+    if (pageId === currentPageId) {
+      setPrompts(prev => prev.map(p => ({ ...p, images: null, status: 'pending' as const })));
+    }
+    addLog('warn', '페이지 이미지 삭제됨');
+  };
+
+  /** 전체 이미지 삭제 후 → 현재 프롬프트 pending 초기화 */
+  const handleAllImagesCleared = () => {
+    setPrompts(prev => prev.map(p => ({ ...p, images: null, status: 'pending' as const })));
+    addLog('warn', '전체 이미지 삭제됨');
+  };
+
+  /** 전체 초기화 후 → 모든 state 비우기 */
+  const handleAllDataCleared = () => {
+    setPages([]);
+    setCurrentPageId(null);
+    setPrompts([]);
+    addLog('warn', '전체 데이터 초기화됨');
+  };
+
   // ── 렌더링 ────────────────────────────────────────────────────────────
 
   const doneCount = prompts.filter(p => p.status === 'done').length;
 
-  const handleLogout = () => {
-    setAuth({ token: null, user: null });
-    setPages([]);
-    setPrompts([]);
-    setCurrentPageId(null);
-    if (typeof window !== 'undefined') localStorage.removeItem('lastPageId');
-  };
-
   return (
     <div className="flex flex-col h-screen bg-[var(--bg)] text-[var(--text)] overflow-hidden font-[var(--font-sans)]">
-      {!auth.token && <AuthModal />}
+      {(!apiKey || showKeyModal) && (
+        <ApiKeyModal onClose={showKeyModal ? () => setShowKeyModal(false) : undefined} />
+      )}
+      {showStorageModal && (
+        <StorageModal
+          pages={pages}
+          onClose={() => setShowStorageModal(false)}
+          onPageImagesCleared={handlePageImagesCleared}
+          onAllImagesCleared={handleAllImagesCleared}
+          onAllDataCleared={handleAllDataCleared}
+        />
+      )}
       <TopBar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         promptsCount={prompts.length}
         doneCount={doneCount}
         isRunning={isRunning}
-        username={auth.user?.username ?? null}
-        onLogout={handleLogout}
+        onChangeApiKey={() => setShowKeyModal(true)}
+        onOpenStorage={() => setShowStorageModal(true)}
       />
       <div className="flex flex-1 overflow-hidden">
         <LeftPanel
