@@ -129,13 +129,22 @@ export default function CanvasPane({
               <div
                 key={p.id}
                 id={`card-${p.id}`}
-                className="rounded-[14px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] transition-all duration-200 hover:border-[var(--border2)] shrink-0"
+                className="rounded-[14px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] transition-all duration-200 hover:border-[var(--border2)] shrink-0 flex flex-col"
               >
+                {/* 프롬프트 텍스트 — 이미지가 있을 때만 표시 */}
+                {imgs.length > 0 && (
+                  <div className="px-4 py-2.5 text-[12px] text-[var(--text2)] font-[var(--font-mono)] leading-[1.5] border-b border-[var(--border)] truncate">
+                    {p.text}
+                  </div>
+                )}
+
                 {/* 이미지 영역 */}
                 <div className={`grid gap-[1px] bg-[var(--border)] ${
-                  imgs.length <= 1 ? 'grid-cols-1' :
-                  imgs.length === 3 ? 'grid-cols-3' :
-                  'grid-cols-2'
+                  p.size === '1024x1792'
+                    ? ['grid-cols-1','grid-cols-2','grid-cols-3','grid-cols-4'][Math.min(imgs.length, 4) - 1] ?? 'grid-cols-4'
+                    : imgs.length <= 1 ? 'grid-cols-1'
+                    : imgs.length === 3 ? 'grid-cols-3'
+                    : 'grid-cols-2'
                 }`}>
                   {imgs.length === 0 ? (
                     <div
@@ -182,12 +191,11 @@ export default function CanvasPane({
                       }
 
                       return (
-                        <div key={idx} className="relative group bg-[var(--surface2)] overflow-hidden">
-                          {/* 이미지가 항상 자연스러운 비율로 표시되도록 width:100%, height:auto 유지 */}
+                        <div key={idx} className="relative group bg-[var(--surface2)] overflow-hidden flex items-center justify-center" style={{ maxHeight: 280 }}>
                           <img
                             src={img}
                             alt={`${p.id}-${idx + 1}`}
-                            className="block w-full h-auto"
+                            className="block max-h-[280px] w-auto max-w-full object-contain"
                           />
 
                           {isRetrying && (
