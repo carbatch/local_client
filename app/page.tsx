@@ -4,9 +4,9 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAtom } from 'jotai';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import type { PromptItem, PageSummary, LogEntry } from './types';
+import type { PromptItem, PageSummary, LogEntry, ImageSize } from './types';
 import { apiKeyAtom } from './store/atoms';
-import { saveImages, loadImages, deletePageImages, deleteAllImages } from './lib/idb';
+import { saveImages, loadImages, deletePageImages } from './lib/idb';
 import ApiKeyModal from './components/AuthModal';
 import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
@@ -22,7 +22,7 @@ function newId(): string {
 // ── OpenAI API 직접 호출 ─────────────────────────────────────────────────
 
 /** DALL-E 3로 이미지 1장 생성 → base64 data URI 반환 */
-async function openaiGenerateImage(prompt: string, apiKey: string): Promise<string> {
+async function openaiGenerateImage(prompt: string, apiKey: string, size: ImageSize): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
@@ -33,7 +33,7 @@ async function openaiGenerateImage(prompt: string, apiKey: string): Promise<stri
       model: 'dall-e-3',
       prompt,
       n: 1,
-      size: '1024x1024',
+      size,
       response_format: 'b64_json',
     }),
   });
@@ -45,25 +45,25 @@ async function openaiGenerateImage(prompt: string, apiKey: string): Promise<stri
   return `data:image/png;base64,${data.data[0].b64_json}`;
 }
 
-/** count장 이미지를 순차 생성 (DALL-E 3는 n=1만 지원) */
+/** count장 이미지를 병렬 생성 (DALL-E 3는 n=1만 지원, count개 요청을 동시에 발송)
+ *  반환 images는 count 길이 고정, 실패한 슬롯은 null */
 async function generateImagesLocal(
   prompt: string,
   count: number,
   apiKey: string,
+  size: ImageSize,
   isAborted: () => boolean,
-): Promise<{ success: boolean; images: string[]; error?: string }> {
-  const images: string[] = [];
-  for (let i = 0; i < count; i++) {
-    if (isAborted()) return { success: false, images: [], error: '취소됨' };
-    try {
-      const img = await openaiGenerateImage(prompt, apiKey);
-      images.push(img);
-    } catch (e) {
-      if (images.length === 0) return { success: false, images: [], error: (e as Error).message };
-      break;
-    }
+): Promise<{ success: boolean; images: (string | null)[]; error?: string }> {
+  if (isAborted()) return { success: false, images: Array(count).fill(null), error: '취소됨' };
+  const tasks = Array.from({ length: count }, () => openaiGenerateImage(prompt, apiKey, size));
+  const results = await Promise.allSettled(tasks);
+  const images: (string | null)[] = results.map(r => r.status === 'fulfilled' ? r.value : null);
+  const successCount = images.filter(img => img !== null).length;
+  if (successCount === 0) {
+    const first = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    return { success: false, images, error: (first?.reason as Error)?.message || '생성 실패' };
   }
-  return images.length > 0 ? { success: true, images } : { success: false, images: [], error: '생성 실패' };
+  return { success: true, images };
 }
 
 /** GPT-4o Vision으로 이미지 스타일 추출 */
@@ -142,6 +142,12 @@ export default function Page() {
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false);
   const [isAutoDownload, setIsAutoDownload] = useState(false);
+  const [imageCount, setImageCount] = useState(2);
+  const imageCountRef = useRef(imageCount);
+  useEffect(() => { imageCountRef.current = imageCount; }, [imageCount]);
+  const [imageSize, setImageSize] = useState<ImageSize>('1024x1024');
+  const imageSizeRef = useRef<ImageSize>(imageSize);
+  useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
   const abortFlagRef = useRef(false);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -252,7 +258,7 @@ export default function Page() {
     }
 
     const promptId = newId();
-    const newPrompt: PromptItem = { id: promptId, text, status: 'running', images: null };
+    const newPrompt: PromptItem = { id: promptId, text, status: 'running', images: null, size: imageSizeRef.current };
     setPrompts(prev => {
       if (prev.length === 0) {
         const title = text.slice(0, 30);
@@ -263,15 +269,15 @@ export default function Page() {
 
     addLog('info', '이미지 생성 시작');
     const full = stylePromptRef.current ? `${text}, ${stylePromptRef.current}` : text;
-    const result = await generateImagesLocal(full, 2, apiKeyRef.current, () => false);
+    const result = await generateImagesLocal(full, imageCountRef.current, apiKeyRef.current, imageSizeRef.current, () => false);
 
-    if (result.success && result.images.length > 0) {
+    if (result.success) {
       await saveImages(pageId, promptId, result.images);
     }
 
     setPrompts(prev => prev.map(p =>
       p.id === promptId
-        ? { ...p, status: result.success ? 'done' : 'error', images: result.images.length ? result.images : null, error: result.error }
+        ? { ...p, status: result.success ? 'done' : 'error', images: result.success ? result.images : null, error: result.error }
         : p
     ));
 
@@ -279,51 +285,60 @@ export default function Page() {
     else addLog('error', `생성 실패: ${result.error}`);
   };
 
-  // ── 배치 실행 ─────────────────────────────────────────────────────────
+  // ── 배치 실행 (최대 CONCURRENCY개 프롬프트 동시 처리) ────────────────
+
+  const CONCURRENCY = 60;
 
   const runBatchItems = useCallback(async (items: PromptItem[], pageId: string) => {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
     abortFlagRef.current = false;
     setIsRunning(true);
-    addLog('info', `자동화 시작 — ${items.length}개 프롬프트`);
+    addLog('info', `자동화 시작 — ${items.length}개 프롬프트 (동시 ${CONCURRENCY}개)`);
 
-    const completedItems: PromptItem[] = [];
+    // 완료된 항목을 원본 순서 그대로 보존하기 위한 Map
+    const resultMap = new Map<string, PromptItem>();
+    let idx = 0;
 
-    for (const p of items) {
-      if (abortFlagRef.current) break;
+    const processOne = async (): Promise<void> => {
+      while (idx < items.length) {
+        if (abortFlagRef.current) break;
+        const p = items[idx++];
 
-      setPrompts(prev => prev.map(x => x.id === p.id ? { ...x, status: 'running' } : x));
-      const style = stylePromptRef.current;
-      const full = style ? `${p.text}, ${style}` : p.text;
-      const result = await generateImagesLocal(full, 2, apiKeyRef.current, () => abortFlagRef.current);
+        setPrompts(prev => prev.map(x => x.id === p.id ? { ...x, status: 'running' } : x));
+        const style = stylePromptRef.current;
+        const full = style ? `${p.text}, ${style}` : p.text;
+        const result = await generateImagesLocal(full, imageCountRef.current, apiKeyRef.current, imageSizeRef.current, () => abortFlagRef.current);
 
-      if (result.success && result.images.length > 0) {
-        await saveImages(pageId, p.id, result.images);
+        if (result.success) {
+          await saveImages(pageId, p.id, result.images);
+        }
+
+        const updated: PromptItem = {
+          ...p,
+          status: result.success ? 'done' : 'error',
+          images: result.success ? result.images : null,
+          size: imageSizeRef.current,
+          error: result.error,
+        };
+        setPrompts(prev => prev.map(x => x.id === p.id ? updated : x));
+        if (result.success) resultMap.set(p.id, updated);
+
+        if (result.success) addLog('success', '이미지 2장 생성 완료');
+        else addLog('error', `생성 실패: ${result.error}`);
       }
+    };
 
-      const updated: PromptItem = {
-        ...p,
-        status: result.success ? 'done' : 'error',
-        images: result.images.length ? result.images : null,
-        error: result.error,
-      };
-      setPrompts(prev => prev.map(x => x.id === p.id ? updated : x));
-      if (result.success) completedItems.push(updated);
-
-      if (result.success) addLog('success', '이미지 2장 생성 완료');
-      else addLog('error', `생성 실패: ${result.error}`);
-
-      if (!abortFlagRef.current) await new Promise<void>(r => setTimeout(r, 500));
-    }
+    await Promise.all(Array.from({ length: CONCURRENCY }, processOne));
 
     if (!abortFlagRef.current) {
       addLog('success', '모든 프롬프트 처리 완료! ✦');
+      const completedItems = items.filter(item => resultMap.has(item.id)).map(item => resultMap.get(item.id)!);
       if (isAutoDownload && completedItems.length > 0) {
         try {
           const zip = new JSZip();
           completedItems.forEach((item, pi) => {
-            (item.images || []).forEach((img, ii) => {
+            (item.images || []).filter((img): img is string => img !== null).forEach((img, ii) => {
               const base64 = img.split(',')[1];
               zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
             });
@@ -371,14 +386,14 @@ export default function Page() {
 
     const style = stylePromptRef.current;
     const full = style ? `${prompt.text}, ${style}` : prompt.text;
-    const result = await generateImagesLocal(full, 1, apiKeyRef.current, () => false);
+    const result = await generateImagesLocal(full, 1, apiKeyRef.current, imageSizeRef.current, () => false);
 
     setRetryingImages(prev => { const next = new Set(prev); next.delete(key); return next; });
 
-    if (result.success && result.images.length > 0) {
+    if (result.success && result.images[0] !== null) {
       setPrompts(prev => prev.map(p => {
         if (p.id !== promptId) return p;
-        const newImages = [...(p.images || [])];
+        const newImages: (string | null)[] = [...(p.images || [])];
         newImages[imgIndex] = result.images[0];
         const updated = { ...p, images: newImages, status: 'done' as const };
         // IDB 전체 이미지 업데이트
@@ -468,7 +483,7 @@ export default function Page() {
     try {
       const zip = new JSZip();
       done.forEach((p, pi) => {
-        (p.images || []).forEach((img, ii) => {
+        (p.images || []).filter((img): img is string => img !== null).forEach((img, ii) => {
           const base64 = img.split(',')[1];
           zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
         });
@@ -547,6 +562,10 @@ export default function Page() {
           isExtractingStyle={isExtractingStyle}
           isAutoDownload={isAutoDownload}
           setIsAutoDownload={setIsAutoDownload}
+          imageCount={imageCount}
+          setImageCount={setImageCount}
+          imageSize={imageSize}
+          setImageSize={setImageSize}
           isRunning={isRunning}
           onRunToggle={handleRunToggle}
           promptsCount={prompts.length}

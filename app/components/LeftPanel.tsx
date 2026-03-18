@@ -1,5 +1,5 @@
 import { Square, Play, Trash2 } from 'lucide-react';
-import type { PageSummary } from '../types';
+import type { PageSummary, ImageSize } from '../types';
 
 interface LeftPanelProps {
   pages: PageSummary[];
@@ -14,6 +14,10 @@ interface LeftPanelProps {
   isExtractingStyle: boolean;
   isAutoDownload: boolean;
   setIsAutoDownload: (val: boolean) => void;
+  imageCount: number;
+  setImageCount: (val: number) => void;
+  imageSize: ImageSize;
+  setImageSize: (val: ImageSize) => void;
   isRunning: boolean;
   onRunToggle: () => void;
   promptsCount: number;
@@ -23,6 +27,8 @@ export default function LeftPanel({
   pages, currentPageId, onSelectPage, onNewPage, onDeletePage,
   stylePrompt, setStylePrompt, styleImagePreview, onStyleImageUpload, isExtractingStyle,
   isAutoDownload, setIsAutoDownload,
+  imageCount, setImageCount,
+  imageSize, setImageSize,
   isRunning, onRunToggle, promptsCount,
 }: LeftPanelProps) {
 
@@ -106,6 +112,53 @@ export default function LeftPanel({
           {isExtractingStyle ? '분석 중...' : styleImagePreview ? '✓ 이미지 재업로드' : '레퍼런스 이미지 업로드'}
           <input type="file" accept="image/*" className="hidden" disabled={isExtractingStyle || isRunning} onChange={onStyleImageUpload} />
         </label>
+
+        <div className="flex items-center justify-between py-1">
+          <span className="text-[10px] text-[var(--text3)]">이미지 비율</span>
+          <div className="flex gap-1">
+            {([
+              { value: '1024x1024', label: '1:1',  w: 16, h: 16 },
+              { value: '1792x1024', label: '16:9', w: 20, h: 12 },
+              { value: '1024x1792', label: '9:16', w: 12, h: 20 },
+            ] as { value: ImageSize; label: string; w: number; h: number }[]).map(({ value, label, w, h }) => (
+              <button
+                key={value}
+                onClick={() => setImageSize(value)}
+                disabled={isRunning}
+                title={label}
+                className={`flex flex-col items-center justify-center gap-1 px-2 py-1.5 rounded-[6px] text-[10px] font-semibold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed
+                  ${imageSize === value
+                    ? 'bg-[var(--accent)] text-[#0e0e10]'
+                    : 'bg-[var(--surface2)] text-[var(--text2)] hover:bg-[var(--border2)]'}`}
+              >
+                <div
+                  className={`border-[1.5px] rounded-[2px] ${imageSize === value ? 'border-[#0e0e10]' : 'border-current'}`}
+                  style={{ width: w, height: h }}
+                />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between py-1">
+          <span className="text-[10px] text-[var(--text3)]">프롬프트당 이미지 수</span>
+          <div className="flex gap-1">
+            {[1, 2, 3, 4].map(n => (
+              <button
+                key={n}
+                onClick={() => setImageCount(n)}
+                disabled={isRunning}
+                className={`w-7 h-7 rounded-[6px] text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed
+                  ${imageCount === n
+                    ? 'bg-[var(--accent)] text-[#0e0e10]'
+                    : 'bg-[var(--surface2)] text-[var(--text2)] hover:bg-[var(--border2)]'}`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <label className="flex items-center justify-between cursor-pointer py-1">
           <span className="text-[10px] text-[var(--text3)] leading-[1.4]">프롬프트 전부 종료 후<br />zip파일 복사</span>

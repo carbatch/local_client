@@ -54,7 +54,7 @@ interface CanvasPaneProps {
 }
 
 export default function CanvasPane({
-  prompts, onSendSinglePrompt, onRetryImage, retryingImages, onParsePrompts, onDownloadAllZip
+  prompts, onSendSinglePrompt, onRetryImage, retryingImages, onParsePrompts, onDownloadAllZip,
 }: CanvasPaneProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -131,28 +131,61 @@ export default function CanvasPane({
               <div
                 key={p.id}
                 id={`card-${p.id}`}
-                className="flex rounded-[14px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] transition-all duration-200 hover:border-[var(--border2)] min-h-100"
+                className="flex rounded-[14px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] transition-all duration-200 hover:border-[var(--border2)]"
               >
                 {/* 이미지 영역 */}
-                <div className="flex-1 grid grid-cols-2 gap-[1px] bg-[var(--border)]">
+                <div className={`flex-1 grid gap-[1px] bg-[var(--border)] ${
+                  imgs.length <= 1 ? 'grid-cols-1' :
+                  imgs.length === 3 ? 'grid-cols-3' :
+                  'grid-cols-2'
+                }`}>
                   {imgs.length === 0 ? (
-                    <div className={`col-span-2 flex items-center justify-center bg-[var(--surface2)] min-h-100
-                      ${isCardRunning ? 'bg-gradient-to-r from-[var(--surface2)] via-[var(--border2)] to-[var(--surface2)] animate-[shimmer_1.5s_ease-in-out_infinite] bg-[length:200%_100%]' : ''}`}>
-                      <div className={`flex flex-col items-center gap-2 text-[11px] font-[var(--font-mono)]
+                    <div
+                      className={`col-span-full flex items-center justify-center bg-[var(--surface2)] min-h-[160px]
+                        ${isCardRunning ? 'bg-gradient-to-r from-[var(--surface2)] via-[var(--border2)] to-[var(--surface2)] animate-[shimmer_1.5s_ease-in-out_infinite] bg-[length:200%_100%]' : ''}`}>
+                      <div className={`flex flex-col items-center gap-2 text-[11px] font-[var(--font-mono)] px-6 text-center
                         ${isCardRunning ? 'text-[var(--accent)]' : isError ? 'text-[var(--red)]' : 'text-[var(--text3)]'}`}>
                         <span className={`text-[24px] ${isCardRunning ? 'animate-[spin_1.5s_linear_infinite] opacity-70' : 'opacity-30'}`}>
                           {isCardRunning ? '⟳' : isError ? '✗' : '✦'}
                         </span>
-                        <span>{isCardRunning ? '생성 중...' : isError ? (p.error || '오류') : '대기중'}</span>
+                        {isError ? (
+                          <>
+                            <span className="text-[12px] font-semibold">이미지 생성에 실패했습니다</span>
+                            <span className="text-[var(--text3)] text-[11px]">문제 : {p.error || '알 수 없는 오류'}</span>
+                          </>
+                        ) : (
+                          <span>{isCardRunning ? '생성 중...' : '대기중'}</span>
+                        )}
                       </div>
                     </div>
                   ) : (
                     imgs.map((img, idx) => {
                       const retryKey = `${p.id}__${idx}`;
                       const isRetrying = retryingImages.has(retryKey);
+
+                      if (img === null) {
+                        return (
+                          <div key={idx} className="relative group bg-[var(--surface2)] overflow-hidden flex items-center justify-center min-h-[160px]">
+                            <div className="flex flex-col items-center gap-1.5 px-4 text-center">
+                              <span className="text-[var(--red)] text-[20px] opacity-40">✗</span>
+                              <span className="text-[var(--red)] text-[11px] font-semibold leading-tight">이미지 생성에 실패했습니다</span>
+                            </div>
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center">
+                              <button
+                                onClick={() => onRetryImage(p.id, idx)}
+                                title="이 이미지만 재시도"
+                                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/25 border border-white/20 flex items-center justify-center text-white transition-all duration-150 cursor-pointer"
+                              >
+                                <RotateCcw size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
-                        <div key={idx} className="relative group aspect-video bg-[var(--surface2)] overflow-hidden">
-                          <img src={img} alt={`${p.id}-${idx + 1}`} className="w-full h-full object-cover" />
+                        <div key={idx} className="relative group bg-[var(--surface2)] overflow-hidden">
+                          <img src={img} alt={`${p.id}-${idx + 1}`} className="block max-h-[320px] max-w-full object-contain mx-auto" />
 
                           {/* 재시도 중 로딩 오버레이 */}
                           {isRetrying && (

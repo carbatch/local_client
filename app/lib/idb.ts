@@ -35,18 +35,20 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-/** 이미지 배열을 IDB에 저장 */
+/** 이미지 배열을 IDB에 저장 (null 슬롯은 스킵) */
 export async function saveImages(
   pageId: string,
   promptId: string,
-  images: string[],
+  images: (string | null)[],
 ): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
     images.forEach((dataUri, index) => {
-      store.put({ key: `${promptId}_${index}`, pageId, promptId, index, dataUri });
+      if (dataUri !== null) {
+        store.put({ key: `${promptId}_${index}`, pageId, promptId, index, dataUri });
+      }
     });
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => { db.close(); reject(tx.error); };
