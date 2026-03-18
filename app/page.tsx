@@ -7,6 +7,7 @@ import { saveAs } from 'file-saver';
 import type { PromptItem, PageSummary, LogEntry, ImageSize } from './types';
 import { apiKeyAtom } from './store/atoms';
 import { saveImages, loadImages, deletePageImages } from './lib/idb';
+import { generateImagesFree } from './lib/freeImageGen';
 import ApiKeyModal from './components/AuthModal';
 import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
@@ -148,7 +149,17 @@ export default function Page() {
   const [imageSize, setImageSize] = useState<ImageSize>('1024x1024');
   const imageSizeRef = useRef<ImageSize>(imageSize);
   useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
+  const [useMock, setUseMock] = useState(false);
+  const useMockRef = useRef(false);
+  useEffect(() => { useMockRef.current = useMock; }, [useMock]);
   const abortFlagRef = useRef(false);
+
+  const generateImages = useCallback((
+    prompt: string, count: number, size: ImageSize, isAborted: () => boolean,
+  ) => useMockRef.current
+    ? generateImagesFree(prompt, count, size, isAborted)
+    : generateImagesLocal(prompt, count, apiKeyRef.current, size, isAborted),
+  []);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
@@ -269,7 +280,7 @@ export default function Page() {
 
     addLog('info', '이미지 생성 시작');
     const full = stylePromptRef.current ? `${text}, ${stylePromptRef.current}` : text;
-    const result = await generateImagesLocal(full, imageCountRef.current, apiKeyRef.current, imageSizeRef.current, () => false);
+    const result = await generateImages(full, imageCountRef.current, imageSizeRef.current, () => false);
 
     if (result.success) {
       await saveImages(pageId, promptId, result.images);
@@ -308,7 +319,7 @@ export default function Page() {
         setPrompts(prev => prev.map(x => x.id === p.id ? { ...x, status: 'running' } : x));
         const style = stylePromptRef.current;
         const full = style ? `${p.text}, ${style}` : p.text;
-        const result = await generateImagesLocal(full, imageCountRef.current, apiKeyRef.current, imageSizeRef.current, () => abortFlagRef.current);
+        const result = await generateImages(full, imageCountRef.current, imageSizeRef.current, () => abortFlagRef.current);
 
         if (result.success) {
           await saveImages(pageId, p.id, result.images);
@@ -386,7 +397,7 @@ export default function Page() {
 
     const style = stylePromptRef.current;
     const full = style ? `${prompt.text}, ${style}` : prompt.text;
-    const result = await generateImagesLocal(full, 1, apiKeyRef.current, imageSizeRef.current, () => false);
+    const result = await generateImages(full, 1, imageSizeRef.current, () => false);
 
     setRetryingImages(prev => { const next = new Set(prev); next.delete(key); return next; });
 
@@ -566,6 +577,8 @@ export default function Page() {
           setImageCount={setImageCount}
           imageSize={imageSize}
           setImageSize={setImageSize}
+          useMock={useMock}
+          setUseMock={setUseMock}
           isRunning={isRunning}
           onRunToggle={handleRunToggle}
           promptsCount={prompts.length}

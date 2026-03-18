@@ -29,13 +29,11 @@ async function copyImageToClipboard(url: string) {
         img.src = objUrl;
       });
 
-  // HTTPS / localhost: 클립보드 직접 복사
   if (window.isSecureContext && navigator.clipboard?.write) {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
     return;
   }
 
-  // HTTP fallback: 새 탭에서 이미지 열기
   const objUrl = URL.createObjectURL(pngBlob);
   const tab = window.open(objUrl, '_blank');
   setTimeout(() => URL.revokeObjectURL(objUrl), 10000);
@@ -109,12 +107,12 @@ export default function CanvasPane({
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
 
       {/* 카드 그리드 */}
-      <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col gap-4">
         {prompts.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-4 text-[var(--text3)] text-center">
+          <div className="flex flex-col items-center justify-center gap-4 text-[var(--text3)] text-center py-20">
             <Sparkles className="w-10 h-10 opacity-20" />
             <p className="text-[13px] leading-[1.6] max-w-[280px]">
               <strong className="text-[var(--text2)]">배치 이미지 생성기</strong><br />
@@ -131,10 +129,10 @@ export default function CanvasPane({
               <div
                 key={p.id}
                 id={`card-${p.id}`}
-                className="flex rounded-[14px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] transition-all duration-200 hover:border-[var(--border2)]"
+                className="rounded-[14px] overflow-hidden border border-[var(--border)] bg-[var(--surface)] transition-all duration-200 hover:border-[var(--border2)] shrink-0"
               >
                 {/* 이미지 영역 */}
-                <div className={`flex-1 grid gap-[1px] bg-[var(--border)] ${
+                <div className={`grid gap-[1px] bg-[var(--border)] ${
                   imgs.length <= 1 ? 'grid-cols-1' :
                   imgs.length === 3 ? 'grid-cols-3' :
                   'grid-cols-2'
@@ -185,16 +183,19 @@ export default function CanvasPane({
 
                       return (
                         <div key={idx} className="relative group bg-[var(--surface2)] overflow-hidden">
-                          <img src={img} alt={`${p.id}-${idx + 1}`} className="block max-h-[320px] max-w-full object-contain mx-auto" />
+                          {/* 이미지가 항상 자연스러운 비율로 표시되도록 width:100%, height:auto 유지 */}
+                          <img
+                            src={img}
+                            alt={`${p.id}-${idx + 1}`}
+                            className="block w-full h-auto"
+                          />
 
-                          {/* 재시도 중 로딩 오버레이 */}
                           {isRetrying && (
                             <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                               <span className="text-white text-[28px] animate-[spin_1s_linear_infinite]">⟳</span>
                             </div>
                           )}
 
-                          {/* 호버 오버레이 (재시도 중엔 숨김) */}
                           {!isRetrying && (
                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-3">
                               <button
@@ -236,7 +237,6 @@ export default function CanvasPane({
 
       {/* 하단 입력바 */}
       <div className="border-t border-[var(--border)] p-3 px-4 flex items-end gap-2 bg-[var(--surface)] shrink-0">
-        {/* + 파일 업로드 */}
         <input ref={fileInputRef} type="file" accept=".txt" className="hidden" onChange={handleFileUpload} />
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -246,7 +246,6 @@ export default function CanvasPane({
           <Plus size={18} />
         </button>
 
-        {/* 텍스트 입력 */}
         <div className="flex-1 bg-[var(--surface2)] border border-[var(--border2)] rounded-[12px] px-3.5 flex items-center gap-2.5 min-h-10 focus-within:border-[var(--accent)] transition-colors duration-150">
           <textarea
             ref={inputRef}
@@ -269,7 +268,6 @@ export default function CanvasPane({
           </button>
         </div>
 
-        {/* 주사위 */}
         <button
           onClick={rollDice}
           title="랜덤 아이디어"
@@ -278,7 +276,6 @@ export default function CanvasPane({
           <Dices size={18} />
         </button>
 
-        {/* ZIP 전체 다운로드 */}
         <button
           onClick={onDownloadAllZip}
           disabled={!prompts.some(p => p.status === 'done' && p.images && p.images.length > 0)}

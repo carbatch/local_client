@@ -14,6 +14,8 @@ interface LeftPanelProps {
   isExtractingStyle: boolean;
   isAutoDownload: boolean;
   setIsAutoDownload: (val: boolean) => void;
+  useMock: boolean;
+  setUseMock: (val: boolean) => void;
   imageCount: number;
   setImageCount: (val: number) => void;
   imageSize: ImageSize;
@@ -27,6 +29,7 @@ export default function LeftPanel({
   pages, currentPageId, onSelectPage, onNewPage, onDeletePage,
   stylePrompt, setStylePrompt, styleImagePreview, onStyleImageUpload, isExtractingStyle,
   isAutoDownload, setIsAutoDownload,
+  useMock, setUseMock,
   imageCount, setImageCount,
   imageSize, setImageSize,
   isRunning, onRunToggle, promptsCount,
@@ -159,6 +162,18 @@ export default function LeftPanel({
             ))}
           </div>
         </div>
+
+        <label className="flex items-center justify-between cursor-pointer py-1">
+          <span className="text-[10px] text-[var(--text3)] leading-[1.4]">무료 이미지 사용<br /><span className="text-[9px] opacity-60">Mock — API 키 불필요</span></span>
+          <div
+            onClick={() => setUseMock(!useMock)}
+            className={`relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0 cursor-pointer
+              ${useMock ? 'bg-[var(--accent)]' : 'bg-[var(--border2)]'}`}
+          >
+            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200
+              ${useMock ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+          </div>
+        </label>
 
         <label className="flex items-center justify-between cursor-pointer py-1">
           <span className="text-[10px] text-[var(--text3)] leading-[1.4]">프롬프트 전부 종료 후<br />zip파일 복사</span>
