@@ -1,5 +1,6 @@
 export type PromptStatus = 'pending' | 'running' | 'done' | 'error';
 export type ImageSize = '1024x1024' | '1792x1024' | '1024x1792';
+export type ModelType = 'sd15' | 'sd15-lcm';
 
 export interface PromptItem {
   id: string;           // 로컬 추적용 ID (타임스탬프 기반)

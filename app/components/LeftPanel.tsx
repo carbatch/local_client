@@ -1,5 +1,5 @@
 import { Square, Play, Trash2 } from 'lucide-react';
-import type { PageSummary, ImageSize } from '../types';
+import type { PageSummary, ImageSize, ModelType } from '../types';
 
 interface LeftPanelProps {
   pages: PageSummary[];
@@ -11,24 +11,41 @@ interface LeftPanelProps {
   setStylePrompt: (val: string) => void;
   isAutoDownload: boolean;
   setIsAutoDownload: (val: boolean) => void;
-  useMock: boolean;
-  setUseMock: (val: boolean) => void;
   imageCount: number;
   setImageCount: (val: number) => void;
   imageSize: ImageSize;
   setImageSize: (val: ImageSize) => void;
+  sdModel: ModelType;
+  setSdModel: (val: ModelType) => void;
   isRunning: boolean;
   onRunToggle: () => void;
   promptsCount: number;
 }
 
+const MODEL_OPTIONS: { value: ModelType; label: string; desc: string; badge: string; badgeColor: string }[] = [
+  {
+    value: 'sd15',
+    label: 'SD 1.5',
+    desc: '고품질 / 느림',
+    badge: '~20s',
+    badgeColor: 'text-[var(--blue)]',
+  },
+  {
+    value: 'sd15-lcm',
+    label: 'SD 1.5 + LCM',
+    desc: '빠른 생성',
+    badge: '~4s',
+    badgeColor: 'text-[var(--green)]',
+  },
+];
+
 export default function LeftPanel({
   pages, currentPageId, onSelectPage, onNewPage, onDeletePage,
   stylePrompt, setStylePrompt,
   isAutoDownload, setIsAutoDownload,
-  useMock, setUseMock,
   imageCount, setImageCount,
   imageSize, setImageSize,
+  sdModel, setSdModel,
   isRunning, onRunToggle, promptsCount,
 }: LeftPanelProps) {
 
@@ -107,6 +124,34 @@ export default function LeftPanel({
           onChange={e => setStylePrompt(e.target.value)}
         />
 
+        {/* 모델 선택 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] text-[var(--text3)]">생성 모델</span>
+          <div className="flex gap-1.5">
+            {MODEL_OPTIONS.map(({ value, label, desc, badge, badgeColor }) => (
+              <button
+                key={value}
+                onClick={() => setSdModel(value)}
+                disabled={isRunning}
+                className={`flex-1 flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-[8px] text-left transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed border
+                  ${sdModel === value
+                    ? 'bg-[var(--accent)] border-[var(--accent)] text-[#0e0e10]'
+                    : 'bg-[var(--surface2)] border-[var(--border2)] text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--text)]'}`}
+              >
+                <div className="flex items-center justify-between w-full gap-1">
+                  <span className="text-[11px] font-semibold leading-none">{label}</span>
+                  <span className={`text-[9px] font-mono font-bold leading-none ${sdModel === value ? 'text-[#0e0e1099]' : badgeColor}`}>
+                    {badge}
+                  </span>
+                </div>
+                <span className={`text-[9px] leading-none ${sdModel === value ? 'text-[#0e0e1099]' : 'text-[var(--text3)]'}`}>
+                  {desc}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="flex items-center justify-between py-1">
           <span className="text-[10px] text-[var(--text3)]">이미지 비율</span>
           <div className="flex gap-1">
@@ -153,18 +198,6 @@ export default function LeftPanel({
             ))}
           </div>
         </div>
-
-        <label className="flex items-center justify-between cursor-pointer py-1">
-          <span className="text-[10px] text-[var(--text3)] leading-[1.4]">Mock 모드<br /><span className="text-[9px] opacity-60">BE 서버 없이 테스트</span></span>
-          <div
-            onClick={() => setUseMock(!useMock)}
-            className={`relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0 cursor-pointer
-              ${useMock ? 'bg-[var(--accent)]' : 'bg-[var(--border2)]'}`}
-          >
-            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200
-              ${useMock ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
-          </div>
-        </label>
 
         <label className="flex items-center justify-between cursor-pointer py-1">
           <span className="text-[10px] text-[var(--text3)] leading-[1.4]">프롬프트 전부 종료 후<br />zip파일 복사</span>

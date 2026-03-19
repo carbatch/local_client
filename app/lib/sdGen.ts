@@ -1,18 +1,17 @@
 /**
  * sdGen.ts
  *
- * FastAPI BE 서버 (FLUX.1-schnell) 를 통해 이미지를 생성합니다.
- * BE 서버 실행 방법: car/BE/ 에서 `uvicorn main:app --host 0.0.0.0 --port 8000`
+ * FastAPI BE 서버 (SD 1.5 / SD 1.5 + LCM) 를 통해 이미지를 생성합니다.
+ * BE 서버 실행: car/BE/ 에서 `uvicorn main:app --host 0.0.0.0 --port 8000`
  *
  * 환경 변수:
  *   NEXT_PUBLIC_BE_URL — BE 서버 주소 (기본: http://localhost:8000)
  */
 
-import type { ImageSize } from '../types';
+import type { ImageSize, ModelType } from '../types';
 
-// ── 크기 매핑 ──────────────────────────────────────────────────────────────
-
-// SD 1.5는 512x512 네이티브, 768까지 양호 (1024↑은 VRAM 많이 필요)
+// ── 크기 매핑 (SD 1.5 최적 해상도) ───────────────────────────────────────────
+// SD 1.5는 512 네이티브, 768까지 양호 (1024↑은 VRAM 많이 필요)
 const SIZE_MAP: Record<ImageSize, { width: number; height: number }> = {
   '1024x1024': { width: 512, height: 512 },
   '1792x1024': { width: 768, height: 512 },
@@ -21,26 +20,31 @@ const SIZE_MAP: Record<ImageSize, { width: number; height: number }> = {
 
 const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
-// ── BE 헬스 체크 ──────────────────────────────────────────────────────────
+// ── BE 헬스 체크 ──────────────────────────────────────────────────────────────
 
-export async function checkSDHealth(): Promise<{ ok: boolean; modelLoaded: boolean; error?: string }> {
+export async function checkSDHealth(): Promise<{
+  ok: boolean;
+  loadedModels: string[];
+  error?: string;
+}> {
   try {
     const res = await fetch(`${BE_URL}/health`, { signal: AbortSignal.timeout(5_000) });
-    if (!res.ok) return { ok: false, modelLoaded: false, error: `HTTP ${res.status}` };
-    const data = await res.json() as { status: string; model_loaded: boolean };
-    return { ok: true, modelLoaded: data.model_loaded };
+    if (!res.ok) return { ok: false, loadedModels: [], error: `HTTP ${res.status}` };
+    const data = await res.json() as { status: string; loaded_models: string[] };
+    return { ok: true, loadedModels: data.loaded_models };
   } catch (e) {
-    return { ok: false, modelLoaded: false, error: (e as Error).message };
+    return { ok: false, loadedModels: [], error: (e as Error).message };
   }
 }
 
-// ── 이미지 생성 (generateImagesLocal 과 동일한 인터페이스) ──────────────────
+// ── 이미지 생성 ───────────────────────────────────────────────────────────────
 
 export async function generateImagesSD(
   prompt: string,
   count: number,
   size: ImageSize,
   isAborted: () => boolean,
+  model: ModelType = 'sd15',
 ): Promise<{ success: boolean; images: (string | null)[]; error?: string }> {
   if (isAborted()) {
     return { success: false, images: Array(count).fill(null), error: '취소됨' };
@@ -52,7 +56,7 @@ export async function generateImagesSD(
     const res = await fetch(`${BE_URL}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, count, width, height }),
+      body: JSON.stringify({ model, prompt, count, width, height }),
     });
 
     if (!res.ok) {

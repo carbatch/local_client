@@ -3,9 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import type { PromptItem, PageSummary, LogEntry, ImageSize } from './types';
+import type { PromptItem, PageSummary, LogEntry, ImageSize, ModelType } from './types';
 import { saveImages, loadImages, deletePageImages } from './lib/idb';
-import { generateImagesFree } from './lib/freeImageGen';
 import { generateImagesSD } from './lib/sdGen';
 import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
@@ -64,16 +63,14 @@ export default function Page() {
   const [imageSize, setImageSize] = useState<ImageSize>('1024x1024');
   const imageSizeRef = useRef<ImageSize>(imageSize);
   useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
-  const [useMock, setUseMock] = useState(false);
-  const useMockRef = useRef(false);
-  useEffect(() => { useMockRef.current = useMock; }, [useMock]);
+  const [sdModel, setSdModel] = useState<ModelType>('sd15');
+  const sdModelRef = useRef<ModelType>('sd15');
+  useEffect(() => { sdModelRef.current = sdModel; }, [sdModel]);
   const abortFlagRef = useRef(false);
 
   const generateImages = useCallback((
     prompt: string, count: number, size: ImageSize, isAborted: () => boolean,
-  ) => useMockRef.current
-    ? generateImagesFree(prompt, count, size, isAborted)
-    : generateImagesSD(prompt, count, size, isAborted),
+  ) => generateImagesSD(prompt, count, size, isAborted, sdModelRef.current),
   []);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -453,8 +450,8 @@ export default function Page() {
           setImageCount={setImageCount}
           imageSize={imageSize}
           setImageSize={setImageSize}
-          useMock={useMock}
-          setUseMock={setUseMock}
+          sdModel={sdModel}
+          setSdModel={setSdModel}
           isRunning={isRunning}
           onRunToggle={handleRunToggle}
           promptsCount={prompts.length}
