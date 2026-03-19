@@ -9,9 +9,6 @@ interface LeftPanelProps {
   onDeletePage: (id: string) => void;
   stylePrompt: string;
   setStylePrompt: (val: string) => void;
-  styleImagePreview: string | null;
-  onStyleImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  isExtractingStyle: boolean;
   isAutoDownload: boolean;
   setIsAutoDownload: (val: boolean) => void;
   useMock: boolean;
@@ -27,7 +24,7 @@ interface LeftPanelProps {
 
 export default function LeftPanel({
   pages, currentPageId, onSelectPage, onNewPage, onDeletePage,
-  stylePrompt, setStylePrompt, styleImagePreview, onStyleImageUpload, isExtractingStyle,
+  stylePrompt, setStylePrompt,
   isAutoDownload, setIsAutoDownload,
   useMock, setUseMock,
   imageCount, setImageCount,
@@ -98,7 +95,7 @@ export default function LeftPanel({
         )}
       </div>
 
-      {/* 하단 스타일 영역 */}
+      {/* 하단 설정 영역 */}
       <div className="border-t border-[var(--border)] p-3 flex flex-col gap-2">
         <div className="text-[10px] font-semibold tracking-[0.08em] uppercase text-[var(--text3)]">스타일 작성</div>
 
@@ -109,12 +106,6 @@ export default function LeftPanel({
           value={stylePrompt}
           onChange={e => setStylePrompt(e.target.value)}
         />
-
-        <label className={`flex items-center justify-center w-full py-2 border border-dashed border-[var(--border2)] rounded-[8px] text-[11px] cursor-pointer transition-all
-          ${isExtractingStyle ? 'text-[var(--accent)] border-[var(--accent)]' : 'text-[var(--text2)] hover:border-[var(--accent)] hover:text-[var(--accent)]'}`}>
-          {isExtractingStyle ? '분석 중...' : styleImagePreview ? '✓ 이미지 재업로드' : '레퍼런스 이미지 업로드'}
-          <input type="file" accept="image/*" className="hidden" disabled={isExtractingStyle || isRunning} onChange={onStyleImageUpload} />
-        </label>
 
         <div className="flex items-center justify-between py-1">
           <span className="text-[10px] text-[var(--text3)]">이미지 비율</span>
@@ -164,7 +155,7 @@ export default function LeftPanel({
         </div>
 
         <label className="flex items-center justify-between cursor-pointer py-1">
-          <span className="text-[10px] text-[var(--text3)] leading-[1.4]">무료 이미지 사용<br /><span className="text-[9px] opacity-60">Mock — API 키 불필요</span></span>
+          <span className="text-[10px] text-[var(--text3)] leading-[1.4]">Mock 모드<br /><span className="text-[9px] opacity-60">BE 서버 없이 테스트</span></span>
           <div
             onClick={() => setUseMock(!useMock)}
             className={`relative w-9 h-5 rounded-full transition-colors duration-200 shrink-0 cursor-pointer

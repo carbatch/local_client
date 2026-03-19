@@ -1,4 +1,4 @@
-import { ScrollText, Settings, KeyRound, HardDrive } from 'lucide-react';
+import { ScrollText, Settings, HardDrive } from 'lucide-react';
 
 interface TopBarProps {
   activeTab: 'canvas' | 'setup' | 'logs';
@@ -6,11 +6,10 @@ interface TopBarProps {
   promptsCount: number;
   doneCount: number;
   isRunning: boolean;
-  onChangeApiKey: () => void;
   onOpenStorage: () => void;
 }
 
-export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onChangeApiKey, onOpenStorage }: TopBarProps) {
+export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage }: TopBarProps) {
   const pct = promptsCount > 0 ? Math.round((doneCount / promptsCount) * 100) : 0;
 
   return (
@@ -60,14 +59,6 @@ export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCoun
           className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--text)] hover:bg-white/5"
         >
           <HardDrive size={14} />
-        </button>
-
-        <button
-          onClick={onChangeApiKey}
-          title="API 키 변경"
-          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--accent)] hover:bg-white/5"
-        >
-          <KeyRound size={14} />
         </button>
       </div>
     </div>

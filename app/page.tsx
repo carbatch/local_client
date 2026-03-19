@@ -1,14 +1,12 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useAtom } from 'jotai';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import type { PromptItem, PageSummary, LogEntry, ImageSize } from './types';
-import { apiKeyAtom } from './store/atoms';
 import { saveImages, loadImages, deletePageImages } from './lib/idb';
 import { generateImagesFree } from './lib/freeImageGen';
-import ApiKeyModal from './components/AuthModal';
+import { generateImagesSD } from './lib/sdGen';
 import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
@@ -18,81 +16,6 @@ import { SetupPane, LogsPane } from './components/SetupAndLogsPanes';
 // ── 로컬 ID 생성 ──────────────────────────────────────────────────────────
 function newId(): string {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// ── OpenAI API 직접 호출 ─────────────────────────────────────────────────
-
-/** DALL-E 3로 이미지 1장 생성 → base64 data URI 반환 */
-async function openaiGenerateImage(prompt: string, apiKey: string, size: ImageSize): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'dall-e-3',
-      prompt,
-      n: 1,
-      size,
-      response_format: 'b64_json',
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `API 오류: ${res.status}`);
-  }
-  const data = await res.json();
-  return `data:image/png;base64,${data.data[0].b64_json}`;
-}
-
-/** count장 이미지를 병렬 생성 (DALL-E 3는 n=1만 지원, count개 요청을 동시에 발송)
- *  반환 images는 count 길이 고정, 실패한 슬롯은 null */
-async function generateImagesLocal(
-  prompt: string,
-  count: number,
-  apiKey: string,
-  size: ImageSize,
-  isAborted: () => boolean,
-): Promise<{ success: boolean; images: (string | null)[]; error?: string }> {
-  if (isAborted()) return { success: false, images: Array(count).fill(null), error: '취소됨' };
-  const tasks = Array.from({ length: count }, () => openaiGenerateImage(prompt, apiKey, size));
-  const results = await Promise.allSettled(tasks);
-  const images: (string | null)[] = results.map(r => r.status === 'fulfilled' ? r.value : null);
-  const successCount = images.filter(img => img !== null).length;
-  if (successCount === 0) {
-    const first = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
-    return { success: false, images, error: (first?.reason as Error)?.message || '생성 실패' };
-  }
-  return { success: true, images };
-}
-
-/** GPT-4o Vision으로 이미지 스타일 추출 */
-async function openaiExtractStyle(imageDataUri: string, apiKey: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o',
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: imageDataUri } },
-          {
-            type: 'text',
-            text: 'Analyze the visual style of this image. Describe the art style, lighting, color palette, mood, and texture in a concise style descriptor suitable for an image generation prompt. Keep it under 200 tokens.',
-          },
-        ],
-      }],
-      max_tokens: 200,
-    }),
-  });
-  if (!res.ok) throw new Error('스타일 추출 실패');
-  const data = await res.json();
-  return data.choices[0].message.content as string;
 }
 
 // ── localStorage 페이지/프롬프트 관리 ────────────────────────────────────
@@ -106,7 +29,6 @@ function lsGetPages(): PageSummary[] {
 function lsSetPages(pages: PageSummary[]) {
   localStorage.setItem(PAGES_KEY, JSON.stringify(pages));
 }
-/** 프롬프트 텍스트만 저장 — 이미지는 IDB에 별도 보관 */
 function lsGetPrompts(pageId: string): PromptItem[] {
   try {
     const raw = localStorage.getItem(pagePromptsKey(pageId));
@@ -123,12 +45,7 @@ function lsDeletePage(pageId: string) {
 // ── 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function Page() {
-  const [apiKey] = useAtom(apiKeyAtom);
-  const [showKeyModal, setShowKeyModal] = useState(false);
   const [showStorageModal, setShowStorageModal] = useState(false);
-
-  const apiKeyRef = useRef(apiKey);
-  useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'setup' | 'logs'>('canvas');
 
@@ -137,8 +54,6 @@ export default function Page() {
   const [prompts, setPrompts] = useState<PromptItem[]>([]);
 
   const [stylePrompt, setStylePrompt] = useState('');
-  const [styleImagePreview, setStyleImagePreview] = useState<string | null>(null);
-  const [isExtractingStyle, setIsExtractingStyle] = useState(false);
 
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false);
@@ -158,7 +73,7 @@ export default function Page() {
     prompt: string, count: number, size: ImageSize, isAborted: () => boolean,
   ) => useMockRef.current
     ? generateImagesFree(prompt, count, size, isAborted)
-    : generateImagesLocal(prompt, count, apiKeyRef.current, size, isAborted),
+    : generateImagesSD(prompt, count, size, isAborted),
   []);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -184,7 +99,6 @@ export default function Page() {
   // ── 초기 로드 ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!apiKey) return;
     const list = lsGetPages();
     setPages(list);
     if (list.length > 0) {
@@ -193,7 +107,7 @@ export default function Page() {
       selectPageById(target ? target.id : list[0].id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKey]);
+  }, []);
 
   // ── 페이지 선택 (IDB에서 이미지 복원) ────────────────────────────────
 
@@ -202,11 +116,9 @@ export default function Page() {
     localStorage.setItem('lastPageId', pageId);
     setActiveTab('canvas');
 
-    // 1) 프롬프트 텍스트를 먼저 pending 상태로 표시
     const items = lsGetPrompts(pageId);
     setPrompts(items);
 
-    // 2) IDB에서 이미지 비동기 복원
     const withImages = await Promise.all(
       items.map(async (item) => {
         try {
@@ -292,13 +204,13 @@ export default function Page() {
         : p
     ));
 
-    if (result.success) addLog('success', '이미지 2장 생성 완료');
+    if (result.success) addLog('success', `이미지 ${imageCountRef.current}장 생성 완료`);
     else addLog('error', `생성 실패: ${result.error}`);
   };
 
-  // ── 배치 실행 (최대 CONCURRENCY개 프롬프트 동시 처리) ────────────────
+  // ── 배치 실행 ─────────────────────────────────────────────────────────
 
-  const CONCURRENCY = 60;
+  const CONCURRENCY = 3; // SD는 순차 처리라 FE 동시 요청을 낮게 유지
 
   const runBatchItems = useCallback(async (items: PromptItem[], pageId: string) => {
     if (isRunningRef.current) return;
@@ -307,7 +219,6 @@ export default function Page() {
     setIsRunning(true);
     addLog('info', `자동화 시작 — ${items.length}개 프롬프트 (동시 ${CONCURRENCY}개)`);
 
-    // 완료된 항목을 원본 순서 그대로 보존하기 위한 Map
     const resultMap = new Map<string, PromptItem>();
     let idx = 0;
 
@@ -335,7 +246,7 @@ export default function Page() {
         setPrompts(prev => prev.map(x => x.id === p.id ? updated : x));
         if (result.success) resultMap.set(p.id, updated);
 
-        if (result.success) addLog('success', '이미지 2장 생성 완료');
+        if (result.success) addLog('success', `[${p.text.slice(0, 20)}] 완료`);
         else addLog('error', `생성 실패: ${result.error}`);
       }
     };
@@ -407,7 +318,6 @@ export default function Page() {
         const newImages: (string | null)[] = [...(p.images || [])];
         newImages[imgIndex] = result.images[0];
         const updated = { ...p, images: newImages, status: 'done' as const };
-        // IDB 전체 이미지 업데이트
         saveImages(currentPageIdRef.current!, promptId, newImages);
         return updated;
       }));
@@ -462,30 +372,6 @@ export default function Page() {
     return true;
   };
 
-  // ── 스타일 이미지 업로드 ──────────────────────────────────────────────
-
-  const handleStyleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsExtractingStyle(true);
-    addLog('info', '스타일 이미지 분석 중...');
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const base64Data = ev.target?.result as string;
-      setStyleImagePreview(base64Data);
-      try {
-        const style = await openaiExtractStyle(base64Data, apiKeyRef.current);
-        setStylePrompt(style);
-        addLog('success', '스타일 추출 완료');
-      } catch {
-        addLog('error', '스타일 추출 실패');
-      } finally {
-        setIsExtractingStyle(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
   // ── ZIP 다운로드 ──────────────────────────────────────────────────────
 
   const handleDownloadAllZip = async () => {
@@ -510,7 +396,6 @@ export default function Page() {
 
   // ── StorageModal 콜백 ─────────────────────────────────────────────────
 
-  /** 특정 페이지 이미지 삭제 후 → 현재 페이지면 프롬프트 pending 초기화 */
   const handlePageImagesCleared = (pageId: string) => {
     if (pageId === currentPageId) {
       setPrompts(prev => prev.map(p => ({ ...p, images: null, status: 'pending' as const })));
@@ -518,13 +403,11 @@ export default function Page() {
     addLog('warn', '페이지 이미지 삭제됨');
   };
 
-  /** 전체 이미지 삭제 후 → 현재 프롬프트 pending 초기화 */
   const handleAllImagesCleared = () => {
     setPrompts(prev => prev.map(p => ({ ...p, images: null, status: 'pending' as const })));
     addLog('warn', '전체 이미지 삭제됨');
   };
 
-  /** 전체 초기화 후 → 모든 state 비우기 */
   const handleAllDataCleared = () => {
     setPages([]);
     setCurrentPageId(null);
@@ -538,9 +421,6 @@ export default function Page() {
 
   return (
     <div className="flex flex-col h-screen bg-[var(--bg)] text-[var(--text)] overflow-hidden font-[var(--font-sans)]">
-      {(!apiKey || showKeyModal) && (
-        <ApiKeyModal onClose={showKeyModal ? () => setShowKeyModal(false) : undefined} />
-      )}
       {showStorageModal && (
         <StorageModal
           pages={pages}
@@ -556,7 +436,6 @@ export default function Page() {
         promptsCount={prompts.length}
         doneCount={doneCount}
         isRunning={isRunning}
-        onChangeApiKey={() => setShowKeyModal(true)}
         onOpenStorage={() => setShowStorageModal(true)}
       />
       <div className="flex flex-1 overflow-hidden">
@@ -568,9 +447,6 @@ export default function Page() {
           onDeletePage={handleDeletePage}
           stylePrompt={stylePrompt}
           setStylePrompt={setStylePrompt}
-          styleImagePreview={styleImagePreview}
-          onStyleImageUpload={handleStyleImageUpload}
-          isExtractingStyle={isExtractingStyle}
           isAutoDownload={isAutoDownload}
           setIsAutoDownload={setIsAutoDownload}
           imageCount={imageCount}
