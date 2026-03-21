@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import type { PromptItem, PageSummary, LogEntry, ImageSize, ModelType } from './types';
 import { saveImages, loadImages, deletePageImages } from './lib/idb';
-import { generateImagesSD } from './lib/sdGen';
+import { generateImagesSD, checkSDHealth } from './lib/sdGen';
 import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
@@ -45,6 +45,9 @@ function lsDeletePage(pageId: string) {
 
 export default function Page() {
   const [showStorageModal, setShowStorageModal] = useState(false);
+
+  const [beStatus, setBeStatus] = useState<'checking' | 'ok' | 'model-loading' | 'offline'>('checking');
+  const beStatusRef = useRef<'checking' | 'ok' | 'model-loading' | 'offline'>('checking');
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'setup' | 'logs'>('canvas');
 
@@ -92,6 +95,25 @@ export default function Page() {
     const toSave = prompts.map(({ id, text }) => ({ id, text }));
     localStorage.setItem(pagePromptsKey(currentPageId), JSON.stringify(toSave));
   }, [prompts, currentPageId]);
+
+  // ── BE 헬스체크 폴링 ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      const result = await checkSDHealth();
+      const next = !result.ok ? 'offline' : result.modelLoaded ? 'ok' : 'model-loading';
+      beStatusRef.current = next;
+      setBeStatus(next);
+      if (next !== 'ok') {
+        timer = setTimeout(poll, 5_000);
+      }
+    };
+
+    poll();
+    return () => clearTimeout(timer);
+  }, []);
 
   // ── 초기 로드 ─────────────────────────────────────────────────────────
 
@@ -434,6 +456,7 @@ export default function Page() {
         doneCount={doneCount}
         isRunning={isRunning}
         onOpenStorage={() => setShowStorageModal(true)}
+        beStatus={beStatus}
       />
       <div className="flex flex-1 overflow-hidden">
         <LeftPanel

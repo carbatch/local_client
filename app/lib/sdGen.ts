@@ -24,16 +24,16 @@ const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000').repla
 
 export async function checkSDHealth(): Promise<{
   ok: boolean;
-  loadedModels: string[];
+  modelLoaded: boolean;
   error?: string;
 }> {
   try {
     const res = await fetch(`${BE_URL}/health`, { signal: AbortSignal.timeout(5_000) });
-    if (!res.ok) return { ok: false, loadedModels: [], error: `HTTP ${res.status}` };
-    const data = await res.json() as { status: string; loaded_models: string[] };
-    return { ok: true, loadedModels: data.loaded_models };
+    if (!res.ok) return { ok: false, modelLoaded: false, error: `HTTP ${res.status}` };
+    const data = await res.json() as { status: string; model_loaded: boolean };
+    return { ok: true, modelLoaded: data.model_loaded };
   } catch (e) {
-    return { ok: false, loadedModels: [], error: (e as Error).message };
+    return { ok: false, modelLoaded: false, error: (e as Error).message };
   }
 }
 

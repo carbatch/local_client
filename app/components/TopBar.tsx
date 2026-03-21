@@ -7,9 +7,17 @@ interface TopBarProps {
   doneCount: number;
   isRunning: boolean;
   onOpenStorage: () => void;
+  beStatus: 'checking' | 'ok' | 'model-loading' | 'offline';
 }
 
-export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage }: TopBarProps) {
+const BE_STATUS_CONFIG = {
+  checking:       { dot: 'bg-[var(--text3)] animate-pulse',                         label: 'BE 연결 확인 중...' },
+  ok:             { dot: 'bg-[var(--green)]',                                        label: 'BE 연결됨' },
+  'model-loading':{ dot: 'bg-[var(--accent)] animate-[blink_1s_ease-in-out_infinite]', label: '모델 로딩 중...' },
+  offline:        { dot: 'bg-[var(--red)]',                                          label: 'BE 오프라인' },
+} as const;
+
+export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage, beStatus }: TopBarProps) {
   const pct = promptsCount > 0 ? Math.round((doneCount / promptsCount) * 100) : 0;
 
   return (
@@ -21,6 +29,14 @@ export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCoun
       </div>
 
       <div className="flex items-center gap-2">
+        <div
+          title={BE_STATUS_CONFIG[beStatus].label}
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--surface2)] border border-[var(--border)] rounded-[20px] text-[11px] text-[var(--text2)] font-[var(--font-mono)] cursor-default select-none"
+        >
+          <div className={`w-[7px] h-[7px] rounded-full shrink-0 ${BE_STATUS_CONFIG[beStatus].dot}`} />
+          <span>{BE_STATUS_CONFIG[beStatus].label}</span>
+        </div>
+
         {promptsCount > 0 && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--surface2)] border border-[var(--border)] rounded-[20px] text-[11px] text-[var(--text2)] font-[var(--font-mono)]">
             <div className={`w-[7px] h-[7px] rounded-full shrink-0 ${isRunning ? 'bg-[var(--accent)] animate-[blink_1s_ease-in-out_infinite]' : (doneCount === promptsCount ? 'bg-[var(--green)]' : 'bg-[var(--text3)]')}`} />
