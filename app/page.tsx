@@ -3,9 +3,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { useAtom } from 'jotai';
 import type { PromptItem, PageSummary, LogEntry, ImageSize, ModelType } from './types';
+import { userAtom, planAtom } from './store/atoms';
 import { saveImages, loadImages, deletePageImages } from './lib/idb';
 import { generateImagesSD, checkSDHealth } from './lib/sdGen';
+import AuthPage from './components/AuthPage';
+import PlanPage from './components/PlanPage';
 import StorageModal from './components/StorageModal';
 import TopBar from './components/TopBar';
 import LeftPanel from './components/LeftPanel';
@@ -44,6 +48,9 @@ function lsDeletePage(pageId: string) {
 // ── 컴포넌트 ─────────────────────────────────────────────────────────────
 
 export default function Page() {
+  const [user, setUser] = useAtom(userAtom);
+  const [plan] = useAtom(planAtom);
+
   const [showStorageModal, setShowStorageModal] = useState(false);
 
   const [beStatus, setBeStatus] = useState<'checking' | 'ok' | 'model-loading' | 'offline'>('checking');
@@ -73,8 +80,8 @@ export default function Page() {
 
   const generateImages = useCallback((
     prompt: string, count: number, size: ImageSize, isAborted: () => boolean,
-  ) => generateImagesSD(prompt, count, size, isAborted, sdModelRef.current),
-  []);
+  ) => generateImagesSD(prompt, count, size, isAborted, sdModelRef.current, user?.token),
+  [user?.token]);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
@@ -434,9 +441,24 @@ export default function Page() {
     addLog('warn', '전체 데이터 초기화됨');
   };
 
+  // ── 로그아웃 ───────────────────────────────────────────────────────────
+
+  const handleLogout = async () => {
+    if (user?.token) {
+      fetch(`${process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000'}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
+      }).catch(() => {});
+    }
+    setUser(null);
+  };
+
   // ── 렌더링 ────────────────────────────────────────────────────────────
 
   const doneCount = prompts.filter(p => p.status === 'done').length;
+
+  if (!user) return <AuthPage />;
+  if (!plan) return <PlanPage />;
 
   return (
     <div className="flex flex-col h-screen bg-[var(--bg)] text-[var(--text)] overflow-hidden font-[var(--font-sans)]">
@@ -457,6 +479,9 @@ export default function Page() {
         isRunning={isRunning}
         onOpenStorage={() => setShowStorageModal(true)}
         beStatus={beStatus}
+        username={user.username}
+        plan={plan}
+        onLogout={handleLogout}
       />
       <div className="flex flex-1 overflow-hidden">
         <LeftPanel

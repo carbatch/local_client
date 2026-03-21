@@ -1,4 +1,4 @@
-import { ScrollText, Settings, HardDrive } from 'lucide-react';
+import { ScrollText, Settings, HardDrive, LogOut } from 'lucide-react';
 
 interface TopBarProps {
   activeTab: 'canvas' | 'setup' | 'logs';
@@ -8,7 +8,16 @@ interface TopBarProps {
   isRunning: boolean;
   onOpenStorage: () => void;
   beStatus: 'checking' | 'ok' | 'model-loading' | 'offline';
+  username: string;
+  plan: 'free' | 'pro' | 'business';
+  onLogout: () => void;
 }
+
+const PLAN_LABEL: Record<'free' | 'pro' | 'business', string> = {
+  free: '일반',
+  pro: 'Pro',
+  business: 'Biz',
+};
 
 const BE_STATUS_CONFIG = {
   checking:       { dot: 'bg-[var(--text3)] animate-pulse',                         label: 'BE 연결 확인 중...' },
@@ -17,7 +26,7 @@ const BE_STATUS_CONFIG = {
   offline:        { dot: 'bg-[var(--red)]',                                          label: 'BE 오프라인' },
 } as const;
 
-export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage, beStatus }: TopBarProps) {
+export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage, beStatus, username, plan, onLogout }: TopBarProps) {
   const pct = promptsCount > 0 ? Math.round((doneCount / promptsCount) * 100) : 0;
 
   return (
@@ -75,6 +84,26 @@ export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCoun
           className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--text)] hover:bg-white/5"
         >
           <HardDrive size={14} />
+        </button>
+
+        <div className="w-px h-4 bg-[var(--border2)]" />
+
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[var(--surface2)] border border-[var(--border)] rounded-[20px]">
+          <div className="w-[6px] h-[6px] rounded-full bg-[var(--green)] shrink-0" />
+          <span className="text-[11px] text-[var(--text2)] font-[var(--font-mono)] max-w-[80px] truncate">{username}</span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-[4px] ${
+            plan === 'business' ? 'bg-[var(--blue)]/20 text-[var(--blue)]' :
+            plan === 'pro'      ? 'bg-[var(--accent)]/20 text-[var(--accent)]' :
+                                  'bg-[var(--border2)] text-[var(--text3)]'
+          }`}>{PLAN_LABEL[plan]}</span>
+        </div>
+
+        <button
+          onClick={onLogout}
+          title="로그아웃"
+          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--red)] hover:bg-[var(--red)]/10"
+        >
+          <LogOut size={14} />
         </button>
       </div>
     </div>

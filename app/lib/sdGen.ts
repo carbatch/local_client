@@ -45,6 +45,7 @@ export async function generateImagesSD(
   size: ImageSize,
   isAborted: () => boolean,
   model: ModelType = 'sd15',
+  token?: string,
 ): Promise<{ success: boolean; images: (string | null)[]; error?: string }> {
   if (isAborted()) {
     return { success: false, images: Array(count).fill(null), error: '취소됨' };
@@ -53,9 +54,12 @@ export async function generateImagesSD(
   const { width, height } = SIZE_MAP[size];
 
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     const res = await fetch(`${BE_URL}/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ model, prompt, count, width, height }),
     });
 
