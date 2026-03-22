@@ -1,5 +1,8 @@
-import { Square, Play, Trash2 } from 'lucide-react';
+import { Square, Play, Trash2, ImagePlus, X } from 'lucide-react';
+import { useRef, useState } from 'react';
 import type { PageSummary, ImageSize, ModelType } from '../types';
+
+const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
 interface LeftPanelProps {
   pages: PageSummary[];
@@ -20,6 +23,7 @@ interface LeftPanelProps {
   isRunning: boolean;
   onRunToggle: () => void;
   promptsCount: number;
+  token: string;
 }
 
 const MODEL_OPTIONS: { value: ModelType; label: string; desc: string; badge: string; badgeColor: string }[] = [
@@ -46,8 +50,40 @@ export default function LeftPanel({
   imageCount, setImageCount,
   imageSize, setImageSize,
   sdModel, setSdModel,
-  isRunning, onRunToggle, promptsCount,
+  isRunning, onRunToggle, promptsCount, token,
 }: LeftPanelProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setPreviewUrl(dataUrl);
+      setIsAnalyzing(true);
+      try {
+        const res = await fetch(`${BE_URL}/analyze-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ image: dataUrl }),
+        });
+        const data = await res.json();
+        if (res.ok && data.style_prompt) setStylePrompt(data.style_prompt);
+      } catch {
+        // 분석 실패 시 무시 — 사용자가 직접 입력 가능
+      } finally {
+        setIsAnalyzing(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => { setPreviewUrl(null); };
 
   return (
     <div className="w-[280px] shrink-0 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col overflow-hidden">
@@ -114,7 +150,39 @@ export default function LeftPanel({
 
       {/* 하단 설정 영역 */}
       <div className="border-t border-[var(--border)] p-3 flex flex-col gap-2">
-        <div className="text-[10px] font-semibold tracking-[0.08em] uppercase text-[var(--text3)]">스타일 작성</div>
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] font-semibold tracking-[0.08em] uppercase text-[var(--text3)]">스타일 작성</div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            title="이미지로 스타일 추출"
+            className="flex items-center gap-1 px-2 py-1 rounded-[6px] text-[10px] text-[var(--text3)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 border border-transparent hover:border-[var(--accent)]/30 transition-all cursor-pointer"
+          >
+            <ImagePlus size={12} />
+            이미지로 추출
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+        </div>
+
+        {/* 이미지 프리뷰 */}
+        {previewUrl && (
+          <div className="relative rounded-[8px] overflow-hidden border border-[var(--border2)] bg-[var(--surface2)]">
+            <img src={previewUrl} alt="reference" className="w-full h-[80px] object-cover" />
+            {isAnalyzing && (
+              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1.5">
+                <span className="text-[18px] animate-[spin_1s_linear_infinite] text-[var(--accent)]">⟳</span>
+                <span className="text-[10px] text-white">스타일 분석 중...</span>
+              </div>
+            )}
+            {!isAnalyzing && (
+              <button
+                onClick={clearImage}
+                className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition-colors cursor-pointer"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+        )}
 
         <textarea
           className="bg-[var(--surface2)] border border-[var(--border2)] rounded-[8px] p-2 px-2.5 min-h-[60px] text-[11px] text-[var(--text)] font-[var(--font-mono)] resize-none w-full leading-[1.6] outline-none focus:border-[var(--accent)] placeholder:text-[var(--text3)] transition-colors"

@@ -503,6 +503,7 @@ export default function Page() {
           isRunning={isRunning}
           onRunToggle={handleRunToggle}
           promptsCount={prompts.length}
+          token={user.token}
         />
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {activeTab === 'canvas' && (
