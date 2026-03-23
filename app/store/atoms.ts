@@ -1,8 +1,5 @@
 import { atomWithStorage } from 'jotai/utils';
 
-// OpenAI API 키 — localStorage에 저장, 서버로 전송되지 않음
-export const apiKeyAtom = atomWithStorage<string>('carbatch_apikey', '');
-
 // 로그인 유저 정보
 export interface User {
   token: string;

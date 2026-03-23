@@ -77,7 +77,8 @@ export default function LeftPanel({
         if (res.ok && data.style) {
           setStylePrompt(data.style);
         } else {
-          setAnalyzeError(data.detail ?? '스타일 추출 실패');
+          const d = data.detail;
+          setAnalyzeError(typeof d === 'string' ? d : Array.isArray(d) ? d.map((x: {msg?: string}) => x.msg).filter(Boolean).join(', ') : '스타일 추출 실패');
         }
       } catch (err) {
         setAnalyzeError(err instanceof Error ? err.message : '네트워크 오류');

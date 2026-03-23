@@ -64,12 +64,14 @@ export async function generateImagesSD(
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as { detail?: string };
-      return {
-        success: false,
-        images: Array(count).fill(null),
-        error: err.detail ?? `서버 오류: ${res.status}`,
-      };
+      const err = await res.json().catch(() => ({})) as { detail?: unknown };
+      const detail = err.detail;
+      const errorMsg = typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join(', ')
+          : `서버 오류: ${res.status}`;
+      return { success: false, images: Array(count).fill(null), error: errorMsg };
     }
 
     const job = await res.json() as { prompt_id: string };
