@@ -57,10 +57,10 @@ export async function generateImagesSD(
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${BE_URL}/generate`, {
+    const res = await fetch(`${BE_URL}/api/v1/generate`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model, prompt, count, width, height }),
+      body: JSON.stringify({ prompt, count, width, height }),
     });
 
     if (!res.ok) {
