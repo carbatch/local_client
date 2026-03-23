@@ -470,9 +470,9 @@ export default function Page() {
 
   const handleLogout = async () => {
     if (user?.token) {
-      fetch(`${process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000'}/auth/logout`, {
+      fetch(`${(process.env.NEXT_PUBLIC_BE_URL ?? '').replace(/\/$/, '')}/auth/logout`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user.token}` },
+        headers: { Authorization: `Bearer ${user.token}`, 'ngrok-skip-browser-warning': 'true' },
       }).catch(() => {});
     }
     setUser(null);

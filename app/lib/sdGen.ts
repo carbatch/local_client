@@ -18,7 +18,7 @@ const SIZE_MAP: Record<ImageSize, { width: number; height: number }> = {
   '1024x1792': { width: 512, height: 768 },
 };
 
-const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? '').replace(/\/$/, '');
 
 // ── BE 헬스 체크 ──────────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ export async function checkSDHealth(): Promise<{
   error?: string;
 }> {
   try {
-    const res = await fetch(`${BE_URL}/health`, { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(`${BE_URL}/health`, { signal: AbortSignal.timeout(5_000), headers: { 'ngrok-skip-browser-warning': 'true' } });
     if (!res.ok) return { ok: false, modelLoaded: false, error: `HTTP ${res.status}` };
     const data = await res.json() as { status: string; model_loaded: boolean };
     return { ok: true, modelLoaded: data.model_loaded };
@@ -54,13 +54,13 @@ export async function generateImagesSD(
   const { width, height } = SIZE_MAP[size];
 
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(`${BE_URL}/api/v1/generate`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ prompt, count, width, height }),
+      body: JSON.stringify({ prompt, count, width, height, model }),
     });
 
     if (!res.ok) {
@@ -97,7 +97,19 @@ export async function generateImagesSD(
       };
 
       if (status.status === 'done') {
-        const images = status.image_paths.map(p => `${BE_URL}/storage/${p}`);
+        const images = await Promise.all(
+          status.image_paths.map(async (p) => {
+            try {
+              const imgRes = await fetch(`${BE_URL}/storage/${p}`, {
+                headers: { 'ngrok-skip-browser-warning': 'true' },
+              });
+              const blob = await imgRes.blob();
+              return URL.createObjectURL(blob);
+            } catch {
+              return null;
+            }
+          })
+        );
         return { success: true, images };
       }
       if (status.status === 'error') {

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useSetAtom } from 'jotai';
 import { userAtom } from '../store/atoms';
 
-const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? '').replace(/\/$/, '');
 
 function parseError(detail: unknown): string {
   if (!detail) return '오류가 발생했습니다.';
@@ -36,7 +36,7 @@ export default function AuthPage() {
     try {
       const res = await fetch(`${BE_URL}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify({ email: loginEmail, password: loginPw }),
       });
       const data = await res.json();
@@ -57,7 +57,7 @@ export default function AuthPage() {
     try {
       const res = await fetch(`${BE_URL}/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
         body: JSON.stringify({ username: regUsername, email: regEmail, password: regPw }),
       });
       const data = await res.json();

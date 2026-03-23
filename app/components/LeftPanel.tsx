@@ -2,7 +2,7 @@ import { Square, Play, Trash2, ImagePlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { PageSummary, ImageSize, ModelType } from '../types';
 
-const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const BE_URL = (process.env.NEXT_PUBLIC_BE_URL ?? '').replace(/\/$/, '');
 
 interface LeftPanelProps {
   pages: PageSummary[];
@@ -70,7 +70,7 @@ export default function LeftPanel({
       try {
         const res = await fetch(`${BE_URL}/api/v1/extract-style`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': 'true' },
           body: JSON.stringify({ image: dataUrl }),
         });
         const data = await res.json();
