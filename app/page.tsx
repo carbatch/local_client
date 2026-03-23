@@ -353,24 +353,26 @@ export default function Page() {
     const key = `${promptId}__${imgIndex}`;
     setRetryingImages(prev => new Set([...prev, key]));
 
-    const style = stylePromptRef.current;
-    const full = style ? `${prompt.text}, ${style}` : prompt.text;
-    const result = await generateImages(full, 1, imageSizeRef.current, () => false);
+    try {
+      const style = stylePromptRef.current;
+      const full = style ? `${prompt.text}, ${style}` : prompt.text;
+      const result = await generateImages(full, 1, imageSizeRef.current, () => false);
 
-    setRetryingImages(prev => { const next = new Set(prev); next.delete(key); return next; });
-
-    if (result.success && result.images[0] !== null) {
-      setPrompts(prev => prev.map(p => {
-        if (p.id !== promptId) return p;
-        const newImages: (string | null)[] = [...(p.images || [])];
-        newImages[imgIndex] = result.images[0];
-        const updated = { ...p, images: newImages, status: 'done' as const };
-        saveImages(currentPageIdRef.current!, promptId, newImages);
-        return updated;
-      }));
-      addLog('success', '이미지 재시도 완료');
-    } else {
-      addLog('error', `이미지 재시도 실패: ${result.error}`);
+      if (result.success && result.images[0] !== null) {
+        setPrompts(prev => prev.map(p => {
+          if (p.id !== promptId) return p;
+          const newImages: (string | null)[] = [...(p.images || [])];
+          newImages[imgIndex] = result.images[0];
+          const updated = { ...p, images: newImages, status: 'done' as const };
+          saveImages(currentPageIdRef.current!, promptId, newImages);
+          return updated;
+        }));
+        addLog('success', '이미지 재시도 완료');
+      } else {
+        addLog('error', `이미지 재시도 실패: ${result.error}`);
+      }
+    } finally {
+      setRetryingImages(prev => { const next = new Set(prev); next.delete(key); return next; });
     }
   };
 
