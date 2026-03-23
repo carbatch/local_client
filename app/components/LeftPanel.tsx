@@ -74,9 +74,7 @@ export default function LeftPanel({
           body: JSON.stringify({ image: dataUrl }),
         });
         const data = await res.json();
-        if (res.status === 401) {
-          onUnauthorized();
-        } else if (res.ok && data.style) {
+        if (res.ok && data.style) {
           setStylePrompt(data.style);
         } else {
           setAnalyzeError(data.detail ?? '스타일 추출 실패');
