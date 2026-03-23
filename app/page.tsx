@@ -27,7 +27,10 @@ async function imgToBase64(img: string): Promise<string> {
   if (img.startsWith('data:')) return img.split(',')[1];
   const res = await fetch(img);
   const buf = await res.arrayBuffer();
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
 // ── localStorage 페이지/프롬프트 관리 ────────────────────────────────────
