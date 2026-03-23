@@ -49,7 +49,7 @@ function lsDeletePage(pageId: string) {
 
 export default function Page() {
   const [user, setUser] = useAtom(userAtom);
-  const [plan] = useAtom(planAtom);
+  const [plan, setPlan] = useAtom(planAtom);
 
   const [showStorageModal, setShowStorageModal] = useState(false);
 
@@ -482,6 +482,7 @@ export default function Page() {
         username={user.username}
         plan={plan}
         onLogout={handleLogout}
+        onChangePlan={() => setPlan(null)}
       />
       <div className="flex flex-1 overflow-hidden">
         <LeftPanel
@@ -504,6 +505,7 @@ export default function Page() {
           onRunToggle={handleRunToggle}
           promptsCount={prompts.length}
           token={user.token}
+          onUnauthorized={() => setUser(null)}
         />
         <div className="flex-1 flex flex-col relative overflow-hidden">
           {activeTab === 'canvas' && (

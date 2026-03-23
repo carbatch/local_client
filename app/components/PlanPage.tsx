@@ -1,7 +1,7 @@
 'use client';
 
 import { useSetAtom } from 'jotai';
-import { planAtom, type Plan } from '../store/atoms';
+import { planAtom, userAtom, type Plan } from '../store/atoms';
 import { Check, X } from 'lucide-react';
 
 interface PlanConfig {
@@ -33,7 +33,7 @@ const PLANS: PlanConfig[] = [
   {
     id: 'pro',
     name: '프로',
-    price: '월 \u20a9XX,XXX',
+    price: '월 0원',
     desc: '전문가 및 소규모 팀 용도',
     badge: '추천',
     features: [
@@ -48,7 +48,7 @@ const PLANS: PlanConfig[] = [
   {
     id: 'business',
     name: '비즈니스',
-    price: '월 \u20a9XXX,XXX',
+    price: '월 0원',
     desc: '대용량 배치 작업 및 팀 협업',
     features: [
       { text: '프로 플랜 모든 기능 포함', included: true },
@@ -63,6 +63,7 @@ const PLANS: PlanConfig[] = [
 
 export default function PlanPage() {
   const setPlan = useSetAtom(planAtom);
+  const setUser = useSetAtom(userAtom);
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center bg-[var(--bg)] px-6 py-10 overflow-y-auto">
@@ -73,6 +74,12 @@ export default function PlanPage() {
         </div>
         <p className="text-[13px] text-[var(--text2)] mt-2">요금제를 선택하세요</p>
         <p className="text-[11px] text-[var(--text3)] mt-1">언제든지 변경할 수 있습니다</p>
+        <button
+          onClick={() => setUser(null)}
+          className="mt-3 text-[11px] text-[var(--text3)] hover:text-[var(--red)] transition-colors cursor-pointer"
+        >
+          로그아웃
+        </button>
       </div>
 
       {/* 카드 */}

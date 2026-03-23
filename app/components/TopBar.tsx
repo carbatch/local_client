@@ -1,4 +1,4 @@
-import { ScrollText, Settings, HardDrive, LogOut } from 'lucide-react';
+import { ScrollText, Settings, HardDrive, LogOut, CreditCard } from 'lucide-react';
 
 interface TopBarProps {
   activeTab: 'canvas' | 'setup' | 'logs';
@@ -11,6 +11,7 @@ interface TopBarProps {
   username: string;
   plan: 'free' | 'pro' | 'business';
   onLogout: () => void;
+  onChangePlan: () => void;
 }
 
 const PLAN_LABEL: Record<'free' | 'pro' | 'business', string> = {
@@ -26,7 +27,7 @@ const BE_STATUS_CONFIG = {
   offline:        { dot: 'bg-[var(--red)]',                                          label: 'BE 오프라인' },
 } as const;
 
-export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage, beStatus, username, plan, onLogout }: TopBarProps) {
+export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCount, isRunning, onOpenStorage, beStatus, username, plan, onLogout, onChangePlan }: TopBarProps) {
   const pct = promptsCount > 0 ? Math.round((doneCount / promptsCount) * 100) : 0;
 
   return (
@@ -97,6 +98,14 @@ export default function TopBar({ activeTab, setActiveTab, promptsCount, doneCoun
                                   'bg-[var(--border2)] text-[var(--text3)]'
           }`}>{PLAN_LABEL[plan]}</span>
         </div>
+
+        <button
+          onClick={onChangePlan}
+          title="요금제 변경"
+          className="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 border border-transparent text-[var(--text3)] hover:text-[var(--text)] hover:bg-white/5"
+        >
+          <CreditCard size={14} />
+        </button>
 
         <button
           onClick={onLogout}

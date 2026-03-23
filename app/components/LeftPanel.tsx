@@ -1,4 +1,4 @@
-import { Square, Play, Trash2, ImagePlus, X } from 'lucide-react';
+import { Square, Play, Trash2, ImagePlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { PageSummary, ImageSize, ModelType } from '../types';
 
@@ -24,6 +24,7 @@ interface LeftPanelProps {
   onRunToggle: () => void;
   promptsCount: number;
   token: string;
+  onUnauthorized: () => void;
 }
 
 const MODEL_OPTIONS: { value: ModelType; label: string; desc: string; badge: string; badgeColor: string }[] = [
@@ -50,40 +51,44 @@ export default function LeftPanel({
   imageCount, setImageCount,
   imageSize, setImageSize,
   sdModel, setSdModel,
-  isRunning, onRunToggle, promptsCount, token,
+  isRunning, onRunToggle, promptsCount, token, onUnauthorized,
 }: LeftPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    setAnalyzeError(null);
 
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const dataUrl = ev.target?.result as string;
-      setPreviewUrl(dataUrl);
       setIsAnalyzing(true);
       try {
-        const res = await fetch(`${BE_URL}/analyze-image`, {
+        const res = await fetch(`${BE_URL}/api/v1/extract-style`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ image: dataUrl }),
         });
         const data = await res.json();
-        if (res.ok && data.style_prompt) setStylePrompt(data.style_prompt);
-      } catch {
-        // 분석 실패 시 무시 — 사용자가 직접 입력 가능
+        if (res.status === 401) {
+          onUnauthorized();
+        } else if (res.ok && data.style) {
+          setStylePrompt(data.style);
+        } else {
+          setAnalyzeError(data.detail ?? '스타일 추출 실패');
+        }
+      } catch (err) {
+        setAnalyzeError(err instanceof Error ? err.message : '네트워크 오류');
       } finally {
         setIsAnalyzing(false);
       }
     };
     reader.readAsDataURL(file);
   };
-
-  const clearImage = () => { setPreviewUrl(null); };
 
   return (
     <div className="w-[280px] shrink-0 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col overflow-hidden">
@@ -154,43 +159,36 @@ export default function LeftPanel({
           <div className="text-[10px] font-semibold tracking-[0.08em] uppercase text-[var(--text3)]">스타일 작성</div>
           <button
             onClick={() => fileInputRef.current?.click()}
+            disabled={isAnalyzing}
             title="이미지로 스타일 추출"
-            className="flex items-center gap-1 px-2 py-1 rounded-[6px] text-[10px] text-[var(--text3)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 border border-transparent hover:border-[var(--accent)]/30 transition-all cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded-[6px] text-[10px] text-[var(--text3)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 border border-transparent hover:border-[var(--accent)]/30 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ImagePlus size={12} />
-            이미지로 추출
+            {isAnalyzing ? '분석 중...' : '이미지로 추출'}
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
         </div>
 
-        {/* 이미지 프리뷰 */}
-        {previewUrl && (
-          <div className="relative rounded-[8px] overflow-hidden border border-[var(--border2)] bg-[var(--surface2)]">
-            <img src={previewUrl} alt="reference" className="w-full h-[80px] object-cover" />
-            {isAnalyzing && (
-              <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1.5">
-                <span className="text-[18px] animate-[spin_1s_linear_infinite] text-[var(--accent)]">⟳</span>
-                <span className="text-[10px] text-white">스타일 분석 중...</span>
-              </div>
-            )}
-            {!isAnalyzing && (
-              <button
-                onClick={clearImage}
-                className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition-colors cursor-pointer"
-              >
-                <X size={10} />
-              </button>
-            )}
-          </div>
+        <div className="relative">
+          <textarea
+            className="bg-[var(--surface2)] border border-[var(--border2)] rounded-[8px] p-2 px-2.5 min-h-[60px] text-[11px] text-[var(--text)] font-[var(--font-mono)] resize-none w-full leading-[1.6] outline-none focus:border-[var(--accent)] placeholder:text-[var(--text3)] transition-colors"
+            rows={2}
+            placeholder="스타일 텍스트 직접 입력..."
+            value={stylePrompt}
+            onChange={e => setStylePrompt(e.target.value)}
+          />
+          {isAnalyzing && (
+            <div className="absolute inset-0 rounded-[8px] bg-[var(--surface2)]/80 flex items-center justify-center gap-1.5">
+              <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round"/>
+              </svg>
+              <span className="text-[10px] text-[var(--text3)]">분석 중...</span>
+            </div>
+          )}
+        </div>
+        {analyzeError && (
+          <p className="text-[10px] text-[var(--red)] leading-[1.5]">{analyzeError}</p>
         )}
-
-        <textarea
-          className="bg-[var(--surface2)] border border-[var(--border2)] rounded-[8px] p-2 px-2.5 min-h-[60px] text-[11px] text-[var(--text)] font-[var(--font-mono)] resize-none w-full leading-[1.6] outline-none focus:border-[var(--accent)] placeholder:text-[var(--text3)] transition-colors"
-          rows={2}
-          placeholder="스타일 텍스트 직접 입력..."
-          value={stylePrompt}
-          onChange={e => setStylePrompt(e.target.value)}
-        />
 
         {/* 모델 선택 */}
         <div className="flex flex-col gap-1.5">
