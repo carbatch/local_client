@@ -8,6 +8,7 @@ import type { PromptItem, PageSummary, LogEntry, ImageSize, ModelType } from './
 import { userAtom, planAtom } from './store/atoms';
 import { saveImages, loadImages, deletePageImages } from './lib/idb';
 import { generateImagesSD, checkSDHealth } from './lib/sdGen';
+import { generateImagesFree } from './lib/freeImageGen';
 import AuthPage from './components/AuthPage';
 import PlanPage from './components/PlanPage';
 import StorageModal from './components/StorageModal';
@@ -19,6 +20,14 @@ import { SetupPane, LogsPane } from './components/SetupAndLogsPanes';
 // ── 로컬 ID 생성 ──────────────────────────────────────────────────────────
 function newId(): string {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ── 이미지 → base64 변환 (data URI / URL 모두 지원) ──────────────────────
+async function imgToBase64(img: string): Promise<string> {
+  if (img.startsWith('data:')) return img.split(',')[1];
+  const res = await fetch(img);
+  const buf = await res.arrayBuffer();
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
 
 // ── localStorage 페이지/프롬프트 관리 ────────────────────────────────────
@@ -80,8 +89,10 @@ export default function Page() {
 
   const generateImages = useCallback((
     prompt: string, count: number, size: ImageSize, isAborted: () => boolean,
-  ) => generateImagesSD(prompt, count, size, isAborted, sdModelRef.current, user?.token),
-  [user?.token]);
+  ) => plan === 'free'
+    ? generateImagesFree(prompt, count, size, isAborted)
+    : generateImagesSD(prompt, count, size, isAborted, sdModelRef.current, user?.token),
+  [plan, user?.token]);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
@@ -110,7 +121,12 @@ export default function Page() {
 
     const poll = async () => {
       const result = await checkSDHealth();
-      const next = !result.ok ? 'offline' : result.modelLoaded ? 'ok' : 'model-loading';
+      // free 플랜은 BE 연결 여부만 확인, pro/business는 모델 로드까지 확인
+      const next = !result.ok
+        ? 'offline'
+        : (plan === 'free' || result.modelLoaded)
+          ? 'ok'
+          : 'model-loading';
       beStatusRef.current = next;
       setBeStatus(next);
       if (next !== 'ok') {
@@ -120,7 +136,7 @@ export default function Page() {
 
     poll();
     return () => clearTimeout(timer);
-  }, []);
+  }, [plan]);
 
   // ── 초기 로드 ─────────────────────────────────────────────────────────
 
@@ -285,12 +301,14 @@ export default function Page() {
       if (isAutoDownload && completedItems.length > 0) {
         try {
           const zip = new JSZip();
-          completedItems.forEach((item, pi) => {
-            (item.images || []).filter((img): img is string => img !== null).forEach((img, ii) => {
-              const base64 = img.split(',')[1];
-              zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
-            });
-          });
+          await Promise.all(completedItems.map(async (item, pi) => {
+            await Promise.all(
+              (item.images || []).filter((img): img is string => img !== null).map(async (img, ii) => {
+                const base64 = await imgToBase64(img);
+                zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
+              })
+            );
+          }));
           const blob = await zip.generateAsync({ type: 'blob' });
           saveAs(blob, `carbatch-${pageId}.zip`);
           addLog('success', 'ZIP 자동 다운로드 완료');
@@ -405,12 +423,14 @@ export default function Page() {
     if (!done.length) { addLog('warn', '다운로드할 이미지가 없습니다.'); return; }
     try {
       const zip = new JSZip();
-      done.forEach((p, pi) => {
-        (p.images || []).filter((img): img is string => img !== null).forEach((img, ii) => {
-          const base64 = img.split(',')[1];
-          zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
-        });
-      });
+      await Promise.all(done.map(async (p, pi) => {
+        await Promise.all(
+          (p.images || []).filter((img): img is string => img !== null).map(async (img, ii) => {
+            const base64 = await imgToBase64(img);
+            zip.file(`${String(pi + 1).padStart(3, '0')}_${ii + 1}.png`, base64, { base64: true });
+          })
+        );
+      }));
       const blob = await zip.generateAsync({ type: 'blob' });
       const title = pages.find(p => p.id === currentPageId)?.title || 'batch';
       saveAs(blob, `carbatch-${title}.zip`);

@@ -72,8 +72,38 @@ export async function generateImagesSD(
       };
     }
 
-    const data = await res.json() as { success: boolean; images: (string | null)[]; error?: string };
-    return { success: data.success, images: data.images, error: data.error };
+    const job = await res.json() as { prompt_id: string };
+    const promptId = job.prompt_id;
+
+    // 폴링 — done / error 될 때까지 대기
+    const POLL_INTERVAL = 2000;
+    const TIMEOUT = 5 * 60 * 1000; // 5분
+    const deadline = Date.now() + TIMEOUT;
+
+    while (Date.now() < deadline) {
+      if (isAborted()) return { success: false, images: Array(count).fill(null), error: '취소됨' };
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      if (isAborted()) return { success: false, images: Array(count).fill(null), error: '취소됨' };
+
+      const statusRes = await fetch(`${BE_URL}/api/v1/generations/${promptId}/status`, { headers });
+      if (!statusRes.ok) continue;
+
+      const status = await statusRes.json() as {
+        status: 'pending' | 'running' | 'done' | 'error';
+        image_paths: string[];
+        error_msg: string | null;
+      };
+
+      if (status.status === 'done') {
+        const images = status.image_paths.map(p => `${BE_URL}/storage/${p}`);
+        return { success: true, images };
+      }
+      if (status.status === 'error') {
+        return { success: false, images: Array(count).fill(null), error: status.error_msg ?? '생성 실패' };
+      }
+    }
+
+    return { success: false, images: Array(count).fill(null), error: '생성 시간 초과 (5분)' };
   } catch (e) {
     return {
       success: false,
