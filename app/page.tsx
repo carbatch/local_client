@@ -94,7 +94,7 @@ export default function Page() {
     prompt: string, count: number, size: ImageSize, isAborted: () => boolean,
   ) => plan === 'free'
     ? generateImagesFree(prompt, count, size, isAborted)
-    : generateImagesSD(prompt, count, size, isAborted, sdModelRef.current, user?.token),
+    : generateImagesSD(prompt, count, size, isAborted, undefined, user?.token),
   [plan, user?.token]);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -325,7 +325,7 @@ export default function Page() {
     setIsRunning(false);
     abortFlagRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog, isAutoDownload]);
+  }, [addLog, isAutoDownload, generateImages]);
 
   // ── 배치 자동화 토글 ──────────────────────────────────────────────────
 

@@ -53,14 +53,21 @@ export async function generateImagesSD(
 
   const { width, height } = SIZE_MAP[size];
 
+  if (!token) {
+    return { success: false, images: Array(count).fill(null), error: '인증 토큰이 없습니다. 다시 로그인해 주세요.' };
+  }
+
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
+      'Authorization': `Bearer ${token}`,
+    };
 
     const res = await fetch(`${BE_URL}/api/v1/generate`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ prompt, count, width, height, model }),
+      body: JSON.stringify({ prompt, count, width, height }),
     });
 
     if (!res.ok) {
@@ -69,7 +76,10 @@ export async function generateImagesSD(
       const errorMsg = typeof detail === 'string'
         ? detail
         : Array.isArray(detail)
-          ? detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join(', ')
+          ? detail.map((d: { msg?: string; loc?: unknown[] }) => {
+              const field = d.loc ? (d.loc as string[]).join('.') : '';
+              return field ? `${field}: ${d.msg}` : (d.msg ?? '');
+            }).filter(Boolean).join(', ')
           : `서버 오류: ${res.status}`;
       return { success: false, images: Array(count).fill(null), error: errorMsg };
     }
